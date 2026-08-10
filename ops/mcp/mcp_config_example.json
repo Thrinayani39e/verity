@@ -1,12 +1,23 @@
 {
-  "_comment": "Verified config format from github.com/cockroachdb/claude-plugin for connecting Claude Code / Cursor / VS Code to the CockroachDB Cloud Managed MCP Server via a service-account API key (recommended for agent/automated use over interactive OAuth). Copy this to mcp_config.json, fill in the placeholders (cluster id from `ccloud cluster list`, API key from `ccloud service-account api-key create` — see ops/ccloud/provision_cluster.sh), and merge into your MCP client's config (e.g. .mcp.json for Claude Code). Read-only by default; write access requires explicit consent in the Cloud Console.",
+  "_comment": "Two ways to connect to the CockroachDB Cloud Managed MCP Server. (1) DEFAULT / what the Cloud Console actually generates (Cluster -> Connect -> MCP integration): no key in the file at all, just the cluster id - the MCP client does an interactive OAuth 2.1 approval in your browser on first connect. Nothing secret ever lives in this file. (2) For headless/automated use (e.g. a CI job or an unattended agent that can't do an interactive OAuth prompt), add an Authorization: Bearer header with a service-account API key instead - see github.com/cockroachdb/claude-plugin for that variant. As of ccloud CLI v0.6.12 (the publicly downloadable build at the time of writing), `ccloud service-account create` is documented but not yet present in that binary; create the service account via the Cloud Console's Service Accounts page instead if you need option (2).",
   "mcpServers": {
     "cockroachdb-cloud": {
       "type": "http",
       "url": "https://cockroachlabs.cloud/mcp",
       "headers": {
-        "mcp-cluster-id": "<CLUSTER_ID>",
-        "Authorization": "Bearer <SERVICE_ACCOUNT_API_KEY>"
+        "mcp-cluster-id": "<CLUSTER_ID>"
+      }
+    }
+  },
+  "_headless_automation_variant": {
+    "mcpServers": {
+      "cockroachdb-cloud": {
+        "type": "http",
+        "url": "https://cockroachlabs.cloud/mcp",
+        "headers": {
+          "mcp-cluster-id": "<CLUSTER_ID>",
+          "Authorization": "Bearer <SERVICE_ACCOUNT_API_KEY>"
+        }
       }
     }
   }

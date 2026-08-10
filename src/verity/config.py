@@ -34,10 +34,21 @@ class Settings:
 
     documents_bucket: str = os.environ.get("DOCUMENTS_BUCKET", "")
 
-    db_pool_min_size: int = int(os.environ.get("DB_POOL_MIN_SIZE", "1"))
-    db_pool_max_size: int = int(os.environ.get("DB_POOL_MAX_SIZE", "10"))
+    # CockroachDB Cloud cluster name (not UUID - see ops/ccloud/*.sh), used by
+    # the /ops/health-check API endpoint's ccloud preflight check.
+    cluster_name: str = os.environ.get("CLUSTER_NAME", "")
 
-    max_txn_retries: int = int(os.environ.get("MAX_TXN_RETRIES", "5"))
+    db_pool_min_size: int = int(os.environ.get("DB_POOL_MIN_SIZE", "1"))
+    # Must be >= the number of concurrent workers you intend to run (e.g. in
+    # scripts/simulate_concurrent_claims.py) or extra workers queue for a
+    # pooled connection, which skews retry timing under contention.
+    db_pool_max_size: int = int(os.environ.get("DB_POOL_MAX_SIZE", "20"))
+
+    # All workers deliberately race for the SAME oldest-pending row first,
+    # which is the worst case for contention (N-way collision on one row,
+    # cascading down as each loser retries against the new oldest row). 5
+    # was too low under 12-way contention in testing; 15 comfortably clears it.
+    max_txn_retries: int = int(os.environ.get("MAX_TXN_RETRIES", "15"))
 
     def validate(self) -> None:
         _require("DATABASE_URL")

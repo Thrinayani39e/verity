@@ -1,48 +1,48 @@
 #!/usr/bin/env bash
-# Provision the CockroachDB Cloud cluster Verity runs against, plus a
-# service account for agent-driven automation (used by the ccloud health
-# check and, optionally, as the Managed MCP Server credential).
+# Provision the CockroachDB Cloud cluster Verity runs against.
 #
-# Verified against the ccloud CLI's documented noun-verb command list
-# (https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-reference) as of
-# writing. Flags below are best-effort — run `ccloud <command> --help` to
-# confirm exact flags for your installed CLI version before scripting this
-# further; the reference page enumerates commands but not every flag.
+# Verified directly against `ccloud --help` / `ccloud cluster --help` output
+# on ccloud CLI v0.6.12 (the publicly downloadable build at the time of
+# writing - https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-reference
+# documents a larger command set, including `service-account` and `backup`
+# subcommands, that is NOT present in this binary; if a newer CLI version
+# ships those, prefer them over the Console-UI fallbacks noted below).
 #
 # Prerequisites: `ccloud auth login` has been run once interactively.
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-verity-hackathon}"
 SQL_USER="${SQL_USER:-verity_app}"
+REGION="${REGION:-us-east-1}"
 
-echo "==> Fastest path for first-time setup: run 'ccloud quickstart' interactively."
-echo "    It creates a free cluster, a SQL user, and prints a connection string in one step."
-echo "    The steps below are the equivalent non-interactive/scriptable path."
+echo "==> Fastest path for first-time setup: run 'ccloud quickstart' interactively instead."
+echo "    The steps below are the scriptable equivalent."
 echo
 
-echo "==> Creating cluster (free/basic plan): ${CLUSTER_NAME}"
-ccloud cluster create basic "${CLUSTER_NAME}" --output json | tee /tmp/verity_cluster.json
-
-CLUSTER_ID=$(jq -r '.id' /tmp/verity_cluster.json)
-echo "==> Cluster ID: ${CLUSTER_ID}"
+echo "==> Creating serverless cluster: ${CLUSTER_NAME}"
+ccloud cluster create serverless "${CLUSTER_NAME}" "${REGION}" \
+    --cloud AWS \
+    --primary-region "${REGION}" \
+    --spend-limit 15 \
+    --wait \
+    --output json
 
 echo "==> Creating SQL user: ${SQL_USER}"
-ccloud cluster user create "${SQL_USER}" --cluster "${CLUSTER_ID}" --output json
+SQL_PASSWORD=$(openssl rand -base64 24)
+ccloud cluster user create "${CLUSTER_NAME}" "${SQL_USER}" -p "${SQL_PASSWORD}" --output json
+echo "    (generated password, save it now - it will not be shown again: ${SQL_PASSWORD})"
 
 echo "==> Fetching connection string"
-ccloud cluster sql --cluster "${CLUSTER_ID}" --connection-url --sql-user "${SQL_USER}" --output json
-
-echo "==> Creating a service account for agent-driven ops (ccloud health checks, MCP key)"
-ccloud service-account create "verity-agent" --output json | tee /tmp/verity_service_account.json
-SERVICE_ACCOUNT_ID=$(jq -r '.id' /tmp/verity_service_account.json)
-ccloud service-account api-key create --service-account "${SERVICE_ACCOUNT_ID}" --output json
+ccloud cluster sql "${CLUSTER_NAME}" --connection-url -u "${SQL_USER}" -p "${SQL_PASSWORD}"
 
 echo
 echo "Next steps:"
 echo "  1. Set the printed connection string as DATABASE_URL in .env"
 echo "  2. Run: psql \"\$DATABASE_URL\" -f db/schema.sql"
-echo "  3. Enable the Managed MCP Server for this cluster from the Cloud Console"
-echo "     (Cluster -> Connect -> MCP Server integration) and use the service"
-echo "     account API key printed above as the Bearer token in"
-echo "     ops/mcp/mcp_config_example.json (copy it to mcp_config.json first)."
-echo "  4. Save CLUSTER_ID=${CLUSTER_ID} for health_check.sh / backup_status.sh."
+echo "  3. Enable the Managed MCP Server from the Cloud Console (Cluster ->"
+echo "     Connect -> MCP integration) - it generates a ready-to-use config"
+echo "     with OAuth auth built in, no API key needed for interactive use."
+echo "     See ops/mcp/mcp_config_example.json."
+echo "  4. This CLI build has no 'service-account' command; if you need a"
+echo "     service-account API key for headless/automated MCP or API access,"
+echo "     create one via the Cloud Console's Service Accounts page instead."
