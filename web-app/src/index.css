@@ -1,0 +1,114 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Consolas, monospace;
+
+  --color-bg: #fafaf8;
+  --color-sidebar: #f2f1ec;
+  --color-ink: #14171a;
+
+  /* All secondary text is ink at reduced opacity - see text-ink-* utilities below */
+  --color-line: rgb(20 23 26 / 0.08);
+  --color-line-soft: rgb(20 23 26 / 0.06);
+  --color-line-strong: rgb(20 23 26 / 0.14);
+
+  --color-accent: #2f6b4f;
+  --color-accent-dark: #1f4e38;
+  --color-accent-soft: rgb(47 107 79 / 0.06);
+
+  /* Status: submitted (gray-blue) */
+  --color-status-submitted: #5b6b7a;
+  --color-status-submitted-dot: #8a97a3;
+  /* Status: claimed / context_gathered (blue) */
+  --color-status-progress: #2e5c7a;
+  --color-status-progress-dot: #3b6e91;
+  /* Status: approved / paid (green) */
+  --color-status-approved: #2f6b4f;
+  --color-status-approved-dot: #3d7a5e;
+  /* Status: denied (red) */
+  --color-status-denied: #9a4a3b;
+  --color-status-denied-dot: #a24b3f;
+  /* Status: flagged (amber) */
+  --color-status-flagged: #8a6a1e;
+  --color-status-flagged-dot: #96731f;
+  --color-status-flagged-bg: rgb(150 115 31 / 0.06);
+  --color-status-flagged-border: rgb(150 115 31 / 0.2);
+
+  --color-modal-dark: #101418;
+  --color-modal-accent: #9fd4b6;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgb(61 122 94 / 0.2);
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sweepLine {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.2s ease;
+}
+
+.animate-overlay-in {
+  animation: overlayIn 0.15s ease;
+}
+
+.animate-sweep-line {
+  animation: sweepLine 0.5s ease-out;
+  transform-origin: top;
+}
+
+.animate-pulse-dot {
+  animation: pulseDot 1s infinite;
+}
