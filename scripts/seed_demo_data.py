@@ -69,6 +69,21 @@ def main() -> None:
             description=description,
             amount_cents=150000 + i * 5000,
         )
+
+        # These represent already-resolved past cases used as precedent for
+        # vector similarity search, not open work — leaving them 'pending'
+        # would put them in the same queue claim_next_pending() serves from,
+        # ahead of anything submitted later (oldest-first), which breaks any
+        # demo that expects to claim the claim it just submitted.
+        def _resolve(conn, claim_id=claim_id):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE claims SET status = 'approved', updated_at = now() WHERE id = %s",
+                    (claim_id,),
+                )
+
+        run_in_transaction(_resolve)
+
         print(f"Seeded historical claim {claim_id}: {description[:60]}...")
 
     print("\nSave these for the other demo scripts:")

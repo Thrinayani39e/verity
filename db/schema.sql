@@ -119,3 +119,60 @@ CREATE VIEW IF NOT EXISTS double_claims_check AS
     WHERE event_type = 'claimed'
     GROUP BY claim_id
     HAVING count(DISTINCT agent_id) > 1;
+
+-- Insurance policies. Joined to claims by policy_number (not a foreign key on
+-- claims - a claim can reference a policy_number before/without a formal
+-- policy record existing, matching how intake often works in practice) so
+-- the agent can reason about real coverage limits, deductibles, and expiry
+-- when one exists. See claims_engine.py::_gather_context.
+CREATE TABLE IF NOT EXISTS policies (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              UUID NOT NULL REFERENCES organizations(id),
+    policy_number       STRING NOT NULL UNIQUE,
+    policyholder_name   STRING NOT NULL,
+    coverage_type       STRING NOT NULL DEFAULT 'auto'
+                        CHECK (coverage_type IN ('auto','home','health','life','property')),
+    coverage_limit_cents INT8 NOT NULL,
+    deductible_cents    INT8 NOT NULL DEFAULT 0,
+    effective_date      DATE NOT NULL,
+    expiration_date     DATE NOT NULL,
+    status              STRING NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active','expired','cancelled')),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Payouts. claim_id is UNIQUE, so CockroachDB itself guarantees a claim can
+-- never be paid out twice, no matter how many times process_claim or a
+-- retried transaction runs - the exact same "no duplicates" guarantee the
+-- concurrency story makes for claim ownership, now extended to money
+-- actually moving. See claims_engine.py::_create_payout.
+CREATE TABLE IF NOT EXISTS payouts (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    claim_id      UUID NOT NULL UNIQUE REFERENCES claims(id),
+    decision_id   UUID NOT NULL REFERENCES decisions(id),
+    amount_cents  INT8 NOT NULL,
+    status        STRING NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','sent','failed')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Human review of a flagged decision - the NAIC/EU-AI-Act-aligned
+-- human-in-the-loop step for cases the agent didn't resolve on its own.
+CREATE TABLE IF NOT EXISTS reviews (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    claim_id       UUID NOT NULL REFERENCES claims(id),
+    decision_id    UUID NOT NULL REFERENCES decisions(id),
+    reviewer_name  STRING NOT NULL,
+    outcome        STRING NOT NULL CHECK (outcome IN ('approve','deny')),
+    notes          STRING NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Demo helper view: a claim ever paid out more than once would indicate a
+-- serious correctness bug. Should always return zero rows (in fact this
+-- table structurally cannot - claim_id is UNIQUE - but this view exists so
+-- the UI can show the same kind of explicit proof it shows for claims).
+CREATE VIEW IF NOT EXISTS double_payouts_check AS
+    SELECT claim_id, count(*) AS payout_count
+    FROM payouts
+    GROUP BY claim_id
+    HAVING count(*) > 1;

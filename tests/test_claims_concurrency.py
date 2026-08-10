@@ -66,7 +66,20 @@ def test_concurrent_workers_never_double_claim(org_id):
             claimed.append(claim_id)
         return claimed
 
+    from verity.db import run_in_transaction
+
     agent_ids = [str(uuid.uuid4()) for _ in range(num_workers)]
+
+    def _create_agents(conn):
+        with conn.cursor() as cur:
+            for agent_id in agent_ids:
+                cur.execute(
+                    "INSERT INTO agents (id, org_id, name, kind) VALUES (%s, %s, %s, 'claims_worker')",
+                    (agent_id, org_id, f"pytest-worker-{agent_id[:8]}"),
+                )
+
+    run_in_transaction(_create_agents)
+
     all_claimed: list[str] = []
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
         futures = [pool.submit(worker_loop, agent_id) for agent_id in agent_ids]

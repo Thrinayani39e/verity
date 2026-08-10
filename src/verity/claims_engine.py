@@ -11,13 +11,64 @@ from any locking we implement ourselves.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import psycopg
 
 from verity.bedrock_client import generate_decision
 from verity.db import run_in_transaction
 from verity.vector_memory import find_similar_claims, store_embedding
+
+_POLICY_COLUMNS = [
+    "policy_number",
+    "policyholder_name",
+    "coverage_type",
+    "coverage_limit_cents",
+    "deductible_cents",
+    "effective_date",
+    "expiration_date",
+    "status",
+]
+
+
+def _lookup_policy(cur: psycopg.Cursor, policy_number: str) -> dict | None:
+    """Find a real policy backing this policy_number, if one has been recorded.
+
+    Deliberately joined by policy_number rather than a foreign key on claims -
+    intake commonly happens before a formal policy record is confirmed, so a
+    claim must be able to exist without one. When a policy IS found, its
+    coverage limit and active/expired state are computed here (not left to
+    the model to infer from raw dates) and folded into the decision context.
+    """
+    cur.execute(
+        f"SELECT {', '.join(_POLICY_COLUMNS)} FROM policies WHERE policy_number = %s",
+        (policy_number,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    policy = dict(zip(_POLICY_COLUMNS, row))
+    today = date.today()
+    policy["is_active"] = (
+        policy["status"] == "active" and policy["effective_date"] <= today <= policy["expiration_date"]
+    )
+    return policy
+
+
+def _create_payout(
+    cur: psycopg.Cursor, *, claim_id: str, decision_id: str, amount_cents: int, policy: dict | None
+) -> str:
+    """Insert the payout for an approved claim. payouts.claim_id is UNIQUE, so
+    a second attempt to pay out the same claim (a retried transaction, a
+    duplicate review, anything) fails at the database level, not just in
+    application logic."""
+    deductible = policy["deductible_cents"] if policy else 0
+    payout_amount = max(amount_cents - deductible, 0)
+    cur.execute(
+        "INSERT INTO payouts (claim_id, decision_id, amount_cents) VALUES (%s, %s, %s) RETURNING id",
+        (claim_id, decision_id, payout_amount),
+    )
+    return str(cur.fetchone()[0])
 
 
 def submit_claim(
@@ -135,6 +186,8 @@ def _gather_context(conn: psycopg.Connection, claim_id: str) -> tuple[dict, str,
         columns = [d.name for d in cur.description]
         claimant_history = [dict(zip(columns, row)) for row in cur.fetchall()]
 
+        policy = _lookup_policy(cur, policy_number)
+
     similar = find_similar_claims(description, exclude_claim_id=claim_id, top_k=5)
 
     context = {
@@ -144,6 +197,10 @@ def _gather_context(conn: psycopg.Connection, claim_id: str) -> tuple[dict, str,
             "description": description,
             "amount_cents": amount_cents,
         },
+        "policy": policy,
+        "policy_covers_claim_amount": (
+            amount_cents <= policy["coverage_limit_cents"] if policy else None
+        ),
         "claimant_history": claimant_history,
         "similar_historical_claims": similar,
     }
@@ -210,6 +267,65 @@ def process_claim(claim_id: str, agent_id: str) -> dict:
                 "INSERT INTO claim_events (claim_id, agent_id, event_type, payload) VALUES (%s, %s, 'decided', %s)",
                 (claim_id, agent_id, json.dumps({"decision_id": decision_id, **decision_result})),
             )
-        return {"decision_id": decision_id, **decision_result}
+
+            payout_id = None
+            if decision_result["decision"] == "approve":
+                payout_id = _create_payout(
+                    cur,
+                    claim_id=claim_id,
+                    decision_id=decision_id,
+                    amount_cents=context["claim"]["amount_cents"],
+                    policy=context["policy"],
+                )
+        return {"decision_id": decision_id, "payout_id": payout_id, **decision_result}
+
+    return run_in_transaction(_write)
+
+
+def review_claim(*, claim_id: str, decision_id: str, reviewer_name: str, outcome: str, notes: str) -> dict:
+    """Human review of a flagged claim - the required human-in-the-loop step for cases the
+    agent didn't resolve on its own. `outcome` becomes the claim's final status; an 'approve'
+    outcome creates a payout through the exact same _create_payout path an automated approval
+    uses, so the claim_id UNIQUE constraint on payouts protects this path too.
+    """
+
+    def _write(conn: psycopg.Connection) -> dict:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT amount_cents, policy_number FROM claims WHERE id = %s AND status = 'flagged'",
+                (claim_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(f"Claim {claim_id} is not awaiting review (not in 'flagged' status)")
+            amount_cents, policy_number = row
+
+            cur.execute(
+                """
+                INSERT INTO reviews (claim_id, decision_id, reviewer_name, outcome, notes)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (claim_id, decision_id, reviewer_name, outcome, notes),
+            )
+            review_id = str(cur.fetchone()[0])
+
+            new_status = "approved" if outcome == "approve" else "denied"
+            cur.execute(
+                "UPDATE claims SET status = %s, updated_at = now() WHERE id = %s",
+                (new_status, claim_id),
+            )
+            cur.execute(
+                "INSERT INTO claim_events (claim_id, event_type, payload) VALUES (%s, 'reviewed', %s)",
+                (claim_id, json.dumps({"review_id": review_id, "reviewer_name": reviewer_name, "outcome": outcome, "notes": notes})),
+            )
+
+            payout_id = None
+            if outcome == "approve":
+                policy = _lookup_policy(cur, policy_number)
+                payout_id = _create_payout(
+                    cur, claim_id=claim_id, decision_id=decision_id, amount_cents=amount_cents, policy=policy
+                )
+        return {"review_id": review_id, "status": new_status, "payout_id": payout_id}
 
     return run_in_transaction(_write)
