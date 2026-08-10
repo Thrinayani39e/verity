@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verity — Agentic Memory Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Verity</h1>
+    <p class="tagline">Concurrent claims agents with provable, time-traveled memory — powered by CockroachDB.</p>
+    <div class="api-config">
+      <label for="apiBase">API base URL</label>
+      <input id="apiBase" type="text" value="http://localhost:8000" />
+      <button id="saveApiBase">Save</button>
+      <span id="healthStatus" class="badge">unknown</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>1. Submit a claim</h2>
+      <form id="claimForm">
+        <input name="org_id" placeholder="Organization ID" required />
+        <input name="claimant_name" placeholder="Claimant name" required />
+        <input name="policy_number" placeholder="Policy number" required />
+        <textarea name="description" placeholder="Claim description" required></textarea>
+        <input name="amount_cents" type="number" placeholder="Amount (cents)" required />
+        <button type="submit">Submit claim</button>
+      </form>
+      <pre id="claimResult" class="result"></pre>
+    </section>
+
+    <section class="panel">
+      <h2>2. Claims queue</h2>
+      <div class="row">
+        <input id="agentId" placeholder="Agent ID (any UUID for this demo)" />
+        <button id="refreshClaims">Refresh</button>
+      </div>
+      <table id="claimsTable">
+        <thead>
+          <tr><th>Claim</th><th>Claimant</th><th>Amount</th><th>Status</th><th>Action</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>3. Decision + time-travel audit</h2>
+      <div class="row">
+        <input id="decisionId" placeholder="Decision ID" />
+        <button id="loadDecision">Load decision</button>
+        <button id="replayDecision">Replay AS OF SYSTEM TIME</button>
+      </div>
+      <pre id="decisionResult" class="result"></pre>
+    </section>
+
+    <section class="panel">
+      <h2>4. Concurrency-safety proof</h2>
+      <p class="muted">Should always report zero violations, even after running <code>scripts/simulate_concurrent_claims.py</code> with many concurrent workers.</p>
+      <button id="checkDoubleClaims">Run check</button>
+      <pre id="doubleClaimsResult" class="result"></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
