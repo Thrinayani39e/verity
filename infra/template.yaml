@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Verity — agentic memory layer for concurrent claims agents (CockroachDB + AWS Bedrock).
+  Deploy with: sam build && sam deploy --guided
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: >
+      CockroachDB Cloud connection string. For anything beyond a hackathon
+      demo, move this to AWS Secrets Manager and reference it with a
+      dynamic reference instead of a plain parameter.
+  BedrockLlmModelId:
+    Type: String
+    Default: anthropic.claude-sonnet-5
+  BedrockEmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+  WorkerIntervalMinutes:
+    Type: Number
+    Default: 1
+    Description: How often EventBridge invokes a worker to look for pending claims.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        DATABASE_URL: !Ref DatabaseUrl
+        AWS_REGION: !Ref AWS::Region
+        BEDROCK_LLM_MODEL_ID: !Ref BedrockLlmModelId
+        BEDROCK_EMBEDDING_MODEL_ID: !Ref BedrockEmbeddingModelId
+        EMBEDDING_DIMENSIONS: "1024"
+        DOCUMENTS_BUCKET: !Ref DocumentsBucket
+
+Resources:
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "verity-claim-documents-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  BedrockInvokePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least-privilege InvokeModel access for Verity's two Bedrock models only.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: bedrock:InvokeModel
+            Resource:
+              - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockLlmModelId}"
+              - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockEmbeddingModelId}"
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: lambdas/api_handler.handler
+      ManagedPolicyArns:
+        - !Ref BedrockInvokePolicy
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+      Events:
+        Api:
+          Type: HttpApi
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: lambdas/worker_handler.handler
+      ReservedConcurrentExecutions: 5 # deliberately >1: proves concurrent claim-safety in prod
+      ManagedPolicyArns:
+        - !Ref BedrockInvokePolicy
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Sub "rate(${WorkerIntervalMinutes} minute)"
+
+  IngestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: lambdas/ingestion_handler.handler
+      ManagedPolicyArns:
+        - !Ref BedrockInvokePolicy
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentsBucket
+      Events:
+        DocumentUploaded:
+          Type: S3
+          Properties:
+            Bucket: !Ref DocumentsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: claims/
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the Verity API (set this as apiBase in web/index.html)
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  DocumentsBucketName:
+    Value: !Ref DocumentsBucket
