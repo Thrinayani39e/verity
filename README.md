@@ -2,16 +2,18 @@
 
 **Concurrent claims-processing agents with provable, time-traveled memory — built on CockroachDB, deployed on AWS.**
 
-Verity is a fleet of autonomous claims/underwriting agents that pull work from a shared queue, decide on cases using semantic recall over historical precedent, and record every decision with enough fidelity that a compliance reviewer can later reconstruct *exactly* what the agent knew at the moment it decided — even after the underlying data has changed.
+Verity is a fleet of autonomous claims-processing agents that pull work from a shared queue, decide on cases using semantic recall over historical precedent, and record every decision with enough fidelity that a compliance reviewer can later reconstruct *exactly* what the agent knew at the moment it decided — even after the underlying data has changed.
 
 It exists to demonstrate two things most "agent with memory" demos don't:
 
-1. **Agentic memory has a concurrency problem, not just a persistence problem.** Multiple autonomous agents acting on shared state need transactional guarantees a single-user chatbot never does — otherwise you get double-processed claims, double payouts, duplicate work. Verity proves, on demand, that no claim is ever claimed by more than one agent, using CockroachDB's serializable isolation, not application-level locking.
+1. **Agentic memory has a concurrency problem, not just a persistence problem.** Real claims platforms (e.g. Guidewire ClaimCenter, the industry-standard system) avoid this problem today by routing every claim through a centralized dispatcher — round-robin or rules-based assignment to a single human adjuster — specifically so two workers never have to race for the same case. That works when "workers" are humans: slow, limited in number, easy to serialize through one dispatcher. It stops working once "workers" are AI agents that can act in parallel, across regions, far faster than any human queue can dispatch — the centralized assignment service becomes both a bottleneck and a single point of failure. Verity removes the central dispatcher entirely: any number of agents can call `claim_next_pending()` concurrently, and CockroachDB's serializable isolation — not application-level locking — guarantees none of them ever double-claim a case. `scripts/simulate_concurrent_claims.py` proves this under load.
 2. **Agent memory should be auditable, not just persistent.** Verity stores the exact cluster read-timestamp behind every decision and can replay it later with `AS OF SYSTEM TIME`, reconstructing the agent's actual memory state at decision time — a capability that's native to CockroachDB and not something an ordinary snapshot table can guarantee.
 
 ## Why this matters (the real-world problem)
 
-Claims and underwriting automation is a real, expensive, currently under-scrutiny industry process: duplicate payouts cost insurers money, and regulators (EU AI Act high-risk classification, NAIC's AI model bulletin) are increasingly asking "what did the automated system actually know when it made this decision?" Verity's answer is a database-level guarantee, not a best-effort log.
+This isn't a speculative use case — AI-driven claims automation is already live and valuable in production: Lemonade approves and pays some claims via AI in about two seconds with ~30-40% of claims now touchless, Tractable's computer-vision damage assessment runs at ~95% accuracy, and Shift Technology catches over $5B/year in claims fraud using AI. The stakes are real too: insurance fraud costs the US an estimated **$308.6B/year** (Coalition Against Insurance Fraud), with 10-20% of all claims estimated fraudulent.
+
+Regulators are responding directly to systems like this. The **NAIC Model Bulletin on the Use of AI by Insurers** (adopted Dec 2023, now in force in ~24+ US states) requires insurers to maintain a documented AI governance program whose outputs "can be interpreted and communicated to consumers and regulators in plain terms" — not just to the data scientists who built it. Verity's `AS OF SYSTEM TIME` decision replay is a concrete technical mechanism for meeting exactly that requirement: reconstructing precisely what an agent knew, on demand, rather than trusting a static log that could be incomplete or stale. (Note: the EU AI Act's Annex III high-risk classification specifically covers life/health insurance *underwriting* — risk assessment and pricing — not claims adjudication; it's relevant context for where insurance-AI regulation is heading generally, not a direct citation for this specific use case.)
 
 ## CockroachDB tools used
 
@@ -19,7 +21,7 @@ Claims and underwriting automation is a real, expensive, currently under-scrutin
 |---|---|
 | **Distributed Vector Indexing** | `claim_embeddings` table (`db/schema.sql`) with a `VECTOR(1024)` column and a distributed vector index, used for fraud-pattern / precedent similarity search in `src/verity/vector_memory.py`. Lives in the same transactionally consistent store as the relational claim data — no separate vector DB, no sync lag. |
 | **Managed MCP Server** | Configured per `ops/mcp/mcp_config_example.json`. Lets a human (compliance reviewer, or you, live in the demo) connect Claude Code/Cursor directly to the cluster in read-only mode and query the agent's actual memory, independent of the application. |
-| **ccloud CLI** | `ops/ccloud/*.sh` provision the cluster, create a scoped service account, and check cluster health/backup status. `src/verity/cluster_ops.py::preflight_health_check` shells out to `health_check.sh` as a safety gate before bulk document ingestion — the agent's environment checks its own infrastructure before doing large writes. |
+| **ccloud CLI** | `ops/ccloud/*.sh` provision the cluster and check cluster health (`ccloud cluster info`). `src/verity/cluster_ops.py::preflight_health_check` shells out to `health_check.sh` as a safety gate before bulk document ingestion — the agent's environment checks its own infrastructure before doing large writes. |
 | **Agent Skills Repo** | [`cockroachlabs/cockroachdb-skills`](https://github.com/cockroachlabs/cockroachdb-skills), installed via `npx skills add cockroachlabs/cockroachdb-skills` (see `.claude/skills/`, tracked in `skills-lock.json`). Used while building Verity for `designing-application-transactions` (the retry-loop pattern in `src/verity/db.py`), `cockroachdb-sql`, `managing-cluster-settings` (enabling vector indexing), `reviewing-cluster-health`, `provisioning-cluster-for-production`, and `hardening-user-privileges`. |
 
 (Two tools are required; Verity uses all four of the above.)
@@ -38,9 +40,9 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full diagram and data model.
 
 - **Agentic Memory Design** — memory is relational + vector + append-only audit log in one consistently-committed system, exercised under real concurrent load, not a single toy query.
 - **Technical Implementation** — CockroachDB's documented client-side retry pattern for serialization failures (`src/verity/db.py`), a distributed vector index used for a real similarity task, and a narrow, safe (non-shell-injectable) ccloud CLI integration.
-- **Real-World Impact** — claims/underwriting automation is a real, costly, increasingly-regulated enterprise process.
+- **Real-World Impact** — AI claims automation is already live in production at scale (Lemonade, Tractable, Shift Technology); insurance fraud costs the US $308.6B/year (Coalition Against Insurance Fraud); the NAIC Model Bulletin on AI (live in 24+ states) directly requires the kind of explainability Verity provides.
 - **Production Readiness** — least-privilege IAM (`infra/template.yaml`), an append-only audit trail, a concurrency-safety self-check endpoint (`/audit/double-claims-check`), and a preflight cluster-health gate before bulk writes.
-- **Creativity & Originality** — time-travel decision replay via `AS OF SYSTEM TIME` and a concurrency-proof demo script are not things most "chatbot with memory" submissions will build.
+- **Creativity & Originality** — real claims platforms avoid the concurrency problem with a centralized human dispatcher; Verity's insight is that AI-agent throughput breaks that assumption, and removing the dispatcher entirely (relying on CockroachDB's serializable isolation instead) is only safe because of what CockroachDB specifically guarantees. Time-travel decision replay via `AS OF SYSTEM TIME` is a second angle most "chatbot with memory" submissions won't build.
 
 ---
 
@@ -51,15 +53,17 @@ You'll need a CockroachDB Cloud account and an AWS account. Budget ~30-45 minute
 ### 1. CockroachDB Cloud
 
 1. Go to [cockroachlabs.cloud/signup](https://cockroachlabs.cloud/signup) and sign up (free, no credit card; new orgs start with $400 in free credit on top of the always-free Serverless tier).
-2. **Install the ccloud CLI** ([docs](https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-get-started)), then run `ccloud auth login`.
-3. Run `ccloud quickstart` for the fastest path to a running cluster + SQL user + connection string in one interactive command — or use `ops/ccloud/provision_cluster.sh` for the scripted equivalent, which also creates a service account for agent-driven ops (used by the MCP Server key and `cluster_ops.py`'s health check). Note the cluster ID (`ccloud cluster list --output json`) — you'll need it as `CLUSTER_ID` for `ops/ccloud/*.sh`.
+2. **Install the ccloud CLI** ([docs](https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-get-started)), then run `ccloud auth login` (opens a browser to approve).
+
+   Note: the publicly downloadable CLI build (v0.6.12 at the time of writing) has a smaller command set than the [official reference docs](https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-reference) describe — notably no `service-account` or `backup` subcommands. `ops/ccloud/*.sh` are written against the commands this build actually has (verified directly with `ccloud --help`); if you're on a newer CLI version with those commands, feel free to use them instead. For a service-account API key (only needed for headless/automated MCP or API access — interactive use doesn't need one), create it via the Cloud Console's Service Accounts page.
+3. Run `ccloud quickstart` for the fastest path to a running cluster + SQL user + connection string in one interactive command — or use `ops/ccloud/provision_cluster.sh` for the scripted equivalent. Both `ops/ccloud/health_check.sh` and `backup_status.sh` take the cluster's **name** (not its UUID) as their one argument, e.g. `bash ops/ccloud/health_check.sh lost-spirit` — get it with `ccloud cluster list --output json`.
 4. In the Cloud Console, go to your cluster → **Connect**, copy the connection string, and add `?sslmode=verify-full` if it isn't already there.
 5. Apply the schema:
    ```bash
    psql "$DATABASE_URL" -f db/schema.sql
    ```
    The schema file's header comment includes `SET CLUSTER SETTING feature.vector_index.enabled = true;` — run that first if `CREATE VECTOR INDEX` errors out on your cluster's version. If vector indexing is unavailable entirely, the `VECTOR` column and `<=>` operator still work as a full-scan fallback — just drop that one `CREATE VECTOR INDEX` statement.
-6. **Enable the Managed MCP Server:** in the Cloud Console, go to your cluster → **Connect** → the MCP integration option, which points you at `https://cockroachlabs.cloud/mcp`. Copy `ops/mcp/mcp_config_example.json` to `ops/mcp/mcp_config.json`, fill in your cluster ID and the service-account API key from step 3, and merge it into your Claude Code / Cursor MCP settings (see [cockroachdb/claude-plugin](https://github.com/cockroachdb/claude-plugin) for the reference config format this is based on).
+6. **Enable the Managed MCP Server:** in the Cloud Console, go to your cluster → **Connect** → the MCP integration option. It generates a ready-to-use config pointing at `https://cockroachlabs.cloud/mcp` with just your cluster ID — no API key needed, since it authenticates via an interactive OAuth 2.1 approval in your browser on first connect. This repo's `.mcp.json` already has this wired up for Claude Code; copy `ops/mcp/mcp_config_example.json`'s pattern for Cursor/VS Code. (A service-account API key is only needed for headless/automated access — see the `_headless_automation_variant` in that file.)
 7. **Pull in the Agent Skills Repo** (optional but recommended — already done in this repo, see `.claude/skills/`): `npx skills add cockroachlabs/cockroachdb-skills`.
 
 ### 2. AWS

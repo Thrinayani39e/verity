@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
-# Reports recent backups / point-in-time-recovery coverage for the cluster.
-# This is the infra-level half of Verity's compliance story: AS OF SYSTEM
-# TIME (see src/verity/audit.py) reconstructs memory within the GC window;
-# backups extend recoverability beyond it. Run this before widening the GC
-# TTL or relying on long-range historical replay for an audit.
+# Reports cluster info relevant to the compliance/audit story: AS OF SYSTEM
+# TIME (see src/verity/audit.py) reconstructs memory within the cluster's GC
+# window; backups extend recoverability beyond it.
 #
-# Uses `ccloud cluster backup list` / `backup config get`, per the documented
-# ccloud CLI command list (https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-reference).
+# Note: ccloud CLI v0.6.12 (the publicly downloadable build at the time of
+# writing) has no `backup` subcommand at all, despite one being documented
+# at https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-reference - if
+# a newer CLI ships `ccloud cluster backup list` / `backup config get`,
+# prefer those. Until then, backup schedules and PITR configuration for a
+# Serverless cluster are managed entirely from the Cloud Console's
+# "Backup & Restore" page; this script surfaces what IS available via CLI
+# (version/upgrade state) as a quick sanity check.
+#
+# Usage: backup_status.sh <cluster_name>
 set -euo pipefail
 
-CLUSTER_ID="${CLUSTER_ID:?Set CLUSTER_ID to the target cluster ID}"
+CLUSTER_NAME="${1:?Usage: backup_status.sh <cluster_name>}"
 
-echo "==> Backup list for cluster ${CLUSTER_ID}"
-ccloud cluster backup list --cluster "${CLUSTER_ID}" --output json
+echo "==> Cluster info for ${CLUSTER_NAME} (version/upgrade state relevant to backup compatibility)"
+ccloud cluster info "${CLUSTER_NAME}" --output json --quiet | jq '{name, cockroach_version, upgrade_status, state}'
 
-echo "==> Backup / PITR configuration for cluster ${CLUSTER_ID}"
-ccloud cluster backup config get --cluster "${CLUSTER_ID}" --output json
+echo
+echo "For actual backup schedule / PITR window / restore points, see:"
+echo "  Cloud Console -> ${CLUSTER_NAME} -> Backup & Restore"
