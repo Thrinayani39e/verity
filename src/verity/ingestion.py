@@ -58,3 +58,21 @@ def ingest_document(*, claim_id: str, bucket: str, key: str, doc_type: str = "at
         return document_id
 
     return run_in_transaction(_register)
+
+
+def upload_and_ingest_document(
+    *, claim_id: str, filename: str, content: bytes, doc_type: str = "attachment"
+) -> str:
+    """Upload raw bytes to S3 under the `claims/<claim_id>/...` convention the
+    ingestion Lambda's S3 event trigger expects, then ingest it the same way.
+
+    Used by the API's direct-upload endpoint (verity.api), so a document
+    uploaded through the web app and one uploaded straight to S3 (triggering
+    lambdas/ingestion_handler.py) both land in the exact same memory store
+    through the exact same ingest_document path.
+    """
+    key = f"claims/{claim_id}/{filename}"
+    _s3.put_object(Bucket=settings.documents_bucket, Key=key, Body=content)
+    return ingest_document(
+        claim_id=claim_id, bucket=settings.documents_bucket, key=key, doc_type=doc_type
+    )

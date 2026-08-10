@@ -81,7 +81,18 @@ def run_in_transaction(fn: Callable[[psycopg.Connection], T]) -> T:
 
 @contextmanager
 def read_only_connection():
-    """A plain pooled connection for simple reads (list views, health checks)."""
+    """A plain pooled connection for simple reads (list views, health checks).
+
+    Explicitly rolls back on exit so a pooled connection is never handed back
+    mid-transaction: CockroachDB pins a transaction to a single read
+    timestamp, so a leftover open transaction on a reused connection can make
+    an unrelated later query (e.g. one using AS OF SYSTEM TIME) fail with
+    "inconsistent AS OF SYSTEM TIME timestamp" for reasons that have nothing
+    to do with that later query itself.
+    """
     pool = get_pool()
     with pool.connection() as conn:
-        yield conn
+        try:
+            yield conn
+        finally:
+            conn.rollback()

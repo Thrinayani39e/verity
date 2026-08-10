@@ -66,7 +66,7 @@ def main() -> None:
           "(simulating new information / a data correction)...")
     _mutate_claim(
         claim_id,
-        "Rear bumper damage from a parking lot incident — claimant later admitted "
+        "Rear bumper damage from a parking lot incident - claimant later admitted "
         "to backing into a fixed post, injuries now also being claimed.",
     )
 
@@ -80,7 +80,7 @@ def main() -> None:
           f"{replay['current_claim_state']['description']!r}")
     print(f"\n  State changed since decision? {replay['state_has_changed_since_decision']}")
     print("\nThis proves the agent's decision was reasonable given exactly what it knew at "
-          "the time — even though the claim record has since changed.")
+          "the time - even though the claim record has since changed.")
 
 
 if __name__ == "__main__":

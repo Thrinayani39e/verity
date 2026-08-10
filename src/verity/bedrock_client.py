@@ -35,8 +35,17 @@ def embed_text(text: str) -> list[float]:
 
 
 DECISION_SYSTEM_PROMPT = """You are a claims-adjudication agent. You are given a new claim, \
-similar historical claims (retrieved by semantic similarity), and the claimant's own claim \
-history. Decide whether to approve, deny, or flag the claim for human review.
+the policy backing it (if one is on file, including whether it is currently active and \
+whether its coverage limit covers the claimed amount - already computed for you, don't \
+recompute dates yourself), similar historical claims (retrieved by semantic similarity), and \
+the claimant's own claim history. Decide whether to approve, deny, or flag the claim for \
+human review.
+
+If no policy record is on file, treat that as a reason for extra scrutiny, not automatic \
+denial. If a policy is on file but expired, not yet active, or its coverage limit is below \
+the claimed amount, that should weigh heavily toward deny or flag. Flag (rather than \
+outright deny) whenever the evidence is genuinely ambiguous or the amount is unusually \
+large - a human should make the final call in those cases, not the agent.
 
 Respond with strict JSON only, no prose outside the JSON object, in this shape:
 {"decision": "approve" | "deny" | "flag", "rationale": "<2-4 sentences citing specific \
@@ -77,7 +86,13 @@ def generate_decision(context: dict) -> dict:
     text_blocks = [block["text"] for block in payload["content"] if block.get("type") == "text"]
     if not text_blocks:
         raise ValueError(f"Model response contained no text block: {payload['content']!r}")
-    text = text_blocks[-1]
+    text = text_blocks[-1].strip()
+
+    # Models sometimes wrap JSON in a markdown code fence despite instructions
+    # not to. Strip ```json / ``` fences before parsing rather than trusting
+    # the model to follow the "no prose" instruction literally.
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     try:
         parsed = json.loads(text)
