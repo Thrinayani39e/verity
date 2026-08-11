@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Lint (ruff)
+        run: ruff check src/ lambdas/ scripts/ tests/
+
+      - name: Syntax check
+        run: python -m py_compile src/verity/*.py lambdas/*.py scripts/*.py
+
+      - name: Unit tests (no live infra required)
+        run: pytest tests/test_ingestion_chunking.py -v
+
+      # No `if:` guard needed - if the DATABASE_URL secret isn't configured this
+      # resolves to an empty string, and the test file's own
+      # `pytest.mark.skipif(not os.environ.get("DATABASE_URL"), ...)` skips
+      # cleanly rather than failing.
+      - name: Live integration test (concurrency guarantee)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pytest tests/test_claims_concurrency.py -v
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npx tsc -b
+
+      - name: Build
+        run: npm run build

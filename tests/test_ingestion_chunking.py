@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from verity.ingestion import _chunk_text, CHUNK_OVERLAP, CHUNK_SIZE  # noqa: E402
+from verity.ingestion import CHUNK_OVERLAP, CHUNK_SIZE, _chunk_text
 
 
 def test_short_text_returns_single_chunk():

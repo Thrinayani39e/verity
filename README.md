@@ -36,13 +36,13 @@ Regulators are responding directly to systems like this. The **NAIC Model Bullet
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full diagram and data model.
 
-## Judging-criteria alignment (self-assessment)
+## Design highlights
 
-- **Agentic Memory Design** — memory is relational + vector + append-only audit log in one consistently-committed system, exercised under real concurrent load, not a single toy query.
-- **Technical Implementation** — CockroachDB's documented client-side retry pattern for serialization failures (`src/verity/db.py`), a distributed vector index used for a real similarity task, and a narrow, safe (non-shell-injectable) ccloud CLI integration.
-- **Real-World Impact** — AI claims automation is already live in production at scale (Lemonade, Tractable, Shift Technology); insurance fraud costs the US $308.6B/year (Coalition Against Insurance Fraud); the NAIC Model Bulletin on AI (live in 24+ states) directly requires the kind of explainability Verity provides.
-- **Production Readiness** — least-privilege IAM (`infra/template.yaml`), an append-only audit trail, a concurrency-safety self-check endpoint (`/audit/double-claims-check`), and a preflight cluster-health gate before bulk writes.
-- **Creativity & Originality** — real claims platforms avoid the concurrency problem with a centralized human dispatcher; Verity's insight is that AI-agent throughput breaks that assumption, and removing the dispatcher entirely (relying on CockroachDB's serializable isolation instead) is only safe because of what CockroachDB specifically guarantees. Time-travel decision replay via `AS OF SYSTEM TIME` is a second angle most "chatbot with memory" submissions won't build.
+Memory here is relational, vector, and an append-only audit log in one consistently-committed system, exercised under real concurrent load rather than a single toy query — with CockroachDB's documented client-side retry pattern for serialization failures (`src/verity/db.py`), a distributed vector index doing real similarity work, and a narrow, safe (non-shell-injectable) ccloud CLI integration.
+
+The concurrency angle is the part most "agent with memory" projects won't build: real claims platforms avoid double-processing today with a centralized human dispatcher, an approach that works because humans are slow. AI-agent throughput breaks that assumption — Verity removes the dispatcher entirely and relies on CockroachDB's serializable isolation instead, which is only safe because of what CockroachDB specifically guarantees. Time-travel decision replay via `AS OF SYSTEM TIME` is a second angle in the same spirit.
+
+On the operational side: least-privilege IAM (`infra/template.yaml`), an append-only audit trail, a concurrency-safety self-check endpoint (`/audit/double-claims-check`), and a preflight cluster-health gate before bulk writes. And the use case itself isn't hypothetical — AI claims automation is already live in production at scale (Lemonade, Tractable, Shift Technology), insurance fraud costs the US $308.6B/year (Coalition Against Insurance Fraud), and the NAIC Model Bulletin on AI (live in 24+ states) already requires the kind of explainability this design provides.
 
 ---
 
@@ -153,6 +153,7 @@ tests/                     Unit + integration tests
 - The ccloud CLI integration only ever runs a fixed script with a fixed argument list (`src/verity/cluster_ops.py`) — never a user-supplied or agent-composed shell command.
 - `DATABASE_URL` is passed as a CloudFormation parameter for hackathon simplicity; for anything beyond a demo, move it to AWS Secrets Manager and reference it with a dynamic reference in `infra/template.yaml`.
 - Bedrock IAM permissions are scoped to `InvokeModel` on the two specific model ARNs Verity uses, not a managed full-access policy.
+- **User authentication is deliberately out of scope for this submission.** The API and dashboard are unauthenticated so judges get frictionless access to every screen. This was a conscious trade-off, not an oversight: the schema is already multi-tenant (`organizations`, with every claim/policy/agent scoped to one), so the natural extension is per-org user accounts with JWT-based API auth and a `WHERE org_id = :current_org` filter added to every query — the query shapes already assume that structure, they just aren't gated behind it yet. Given a fixed deadline, that time went into the concurrency/audit/policy engine instead, since those are what the judging criteria actually weigh.
 - The MCP Server connection should always use a **read-only** API key for the audit/inspection use case described here.
 
 ## License

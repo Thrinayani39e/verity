@@ -31,7 +31,10 @@ Globals:
     Environment:
       Variables:
         DATABASE_URL: !Ref DatabaseUrl
-        AWS_REGION: !Ref AWS::Region
+        # AWS_REGION is a reserved Lambda environment variable - the runtime
+        # sets it automatically, and CloudFormation rejects defining it here.
+        # settings.aws_region reads it via os.environ.get("AWS_REGION", ...)
+        # regardless, so no code change needed.
         BEDROCK_LLM_MODEL_ID: !Ref BedrockLlmModelId
         BEDROCK_EMBEDDING_MODEL_ID: !Ref BedrockEmbeddingModelId
         EMBEDDING_DIMENSIONS: "1024"
@@ -66,10 +69,12 @@ Resources:
     Properties:
       CodeUri: ../
       Handler: lambdas/api_handler.handler
-      ManagedPolicyArns:
-        - !Ref BedrockInvokePolicy
       Policies:
-        - S3ReadPolicy:
+        - !Ref BedrockInvokePolicy
+        # CRUD, not just read: POST /claims/{id}/documents writes straight to
+        # S3 (src/verity/ingestion.py::upload_and_ingest_document) from this
+        # function, not just the S3-triggered IngestionFunction below.
+        - S3CrudPolicy:
             BucketName: !Ref DocumentsBucket
       Events:
         Api:
@@ -81,7 +86,7 @@ Resources:
       CodeUri: ../
       Handler: lambdas/worker_handler.handler
       ReservedConcurrentExecutions: 5 # deliberately >1: proves concurrent claim-safety in prod
-      ManagedPolicyArns:
+      Policies:
         - !Ref BedrockInvokePolicy
       Events:
         Schedule:
@@ -94,26 +99,121 @@ Resources:
     Properties:
       CodeUri: ../
       Handler: lambdas/ingestion_handler.handler
-      ManagedPolicyArns:
-        - !Ref BedrockInvokePolicy
       Policies:
-        - S3ReadPolicy:
-            BucketName: !Ref DocumentsBucket
-      Events:
-        DocumentUploaded:
-          Type: S3
-          Properties:
-            Bucket: !Ref DocumentsBucket
-            Events: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: claims/
+        - !Ref BedrockInvokePolicy
+        # A plain S3ReadPolicy (or anything using !Ref/!GetAtt DocumentsBucket)
+        # here creates a circular dependency: the bucket's S3 event trigger
+        # below already makes the bucket depend on this function's invoke
+        # permission, and a Ref/GetAtt back to the bucket from this function's
+        # role closes the loop. DocumentsBucket's name is deterministic
+        # (set explicitly above), so this inline statement grants the same
+        # access via a computed ARN string instead of a resource reference,
+        # breaking the cycle without changing the actual permission.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "arn:aws:s3:::verity-claim-documents-${AWS::AccountId}-${AWS::Region}/*"
+      # No declarative `Events: S3` trigger here: a same-template bucket and
+      # triggered function form an unavoidable circular dependency in SAM
+      # (the bucket's auto-injected NotificationConfiguration needs the
+      # function's invoke permission; the function's own Ref to the bucket
+      # anywhere - policy or event source - closes the loop back). Instead,
+      # this grants S3 invoke permission explicitly via a computed ARN
+      # (no Ref/GetAtt, so no cycle), and the actual bucket notification is
+      # wired up as a one-time post-deploy step - see
+      # ops/aws/configure_s3_notification.sh.
+
+  IngestionFunctionS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref IngestionFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:aws:s3:::verity-claim-documents-${AWS::AccountId}-${AWS::Region}"
+
+  # --- Frontend hosting: private S3 bucket, readable only via CloudFront ---
+  # (Origin Access Control, not a public bucket policy) so the web-app build
+  # has a real HTTPS URL judges can open directly.
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "verity-frontend-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "verity-frontend-oac-${AWS::Region}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        # React Router uses client-side routing, so a direct load/refresh of
+        # e.g. /policies has no matching S3 object - CloudFront would return
+        # its own 403/404 page instead of the app. Rewriting both to
+        # index.html (200) lets the SPA's router take over instead.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        DefaultCacheBehavior:
+          TargetOriginId: frontend-s3
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # AWS managed: CachingOptimized
+        Origins:
+          - Id: frontend-s3
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt FrontendOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
 
 Outputs:
   ApiUrl:
-    Description: Base URL for the Verity API (set this as apiBase in web/index.html)
+    Description: Base URL for the Verity API (set this as VITE_API_BASE when building web-app)
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
   DocumentsBucketName:
     Value: !Ref DocumentsBucket
+  IngestionFunctionArn:
+    Description: Needed by ops/aws/configure_s3_notification.sh's one-time post-deploy step
+    Value: !GetAtt IngestionFunction.Arn
+  FrontendBucketName:
+    Description: Upload the web-app production build here (aws s3 sync web-app/dist s3://<this>)
+    Value: !Ref FrontendBucket
+  FrontendUrl:
+    Description: Public HTTPS URL for the deployed dashboard
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+  FrontendDistributionId:
+    Description: Needed to invalidate the CloudFront cache after each frontend deploy
+    Value: !Ref FrontendDistribution

@@ -18,9 +18,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from verity.audit import replay_decision  # noqa: E402
-from verity.claims_engine import claim_next_pending, process_claim, submit_claim  # noqa: E402
-from verity.db import run_in_transaction  # noqa: E402
+from verity.audit import replay_decision
+from verity.claims_engine import (
+    claim_next_pending,
+    process_claim,
+    submit_claim,
+)
+from verity.db import run_in_transaction
 
 
 def _mutate_claim(claim_id: str, new_description: str) -> None:
