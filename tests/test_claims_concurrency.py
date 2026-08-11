@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 def _has_aws_credentials() -> bool:
     try:
         return boto3.Session().get_credentials() is not None
-    except Exception:
+    except Exception:  # noqa: BLE001 - any resolution failure means "not available"
         return False
 
 
