@@ -5,6 +5,11 @@ the Lambda handler to `api_handler.handler`. See README.md for the full
 `sam build && sam deploy` / manual zip-upload steps.
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
 from mangum import Mangum
 
 from verity.api import app

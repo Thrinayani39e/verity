@@ -5,7 +5,11 @@ function. The object key convention is `claims/<claim_id>/<filename>` so the
 handler can recover which claim a newly uploaded document belongs to.
 """
 
+import os
+import sys
 import urllib.parse
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from verity.ingestion import ingest_document
 
