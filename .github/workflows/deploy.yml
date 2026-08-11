@@ -1,0 +1,91 @@
+name: Deploy
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: verity
+
+jobs:
+  deploy:
+    name: Deploy backend + frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install AWS SAM CLI
+        run: pip install aws-sam-cli
+
+      - name: sam build
+        run: sam build --template-file infra/template.yaml --build-dir infra/.aws-sam/build
+
+      - name: sam deploy
+        run: |
+          sam deploy \
+            --template-file infra/.aws-sam/build/template.yaml \
+            --stack-name "${STACK_NAME}" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --region "${AWS_REGION}" \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides "DatabaseUrl=${{ secrets.DATABASE_URL }} BedrockLlmModelId=us.anthropic.claude-sonnet-4-6 BedrockEmbeddingModelId=amazon.titan-embed-text-v2:0 WorkerIntervalMinutes=1"
+
+      - name: Wire S3 -> ingestion Lambda notification
+        run: bash ops/aws/configure_s3_notification.sh "${STACK_NAME}"
+
+      - name: Read stack outputs
+        id: outputs
+        run: |
+          api_url=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
+          frontend_bucket=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendBucketName'].OutputValue" --output text)
+          distribution_id=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" --output text)
+          frontend_url=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='FrontendUrl'].OutputValue" --output text)
+          echo "api_url=${api_url}" >> "$GITHUB_OUTPUT"
+          echo "frontend_bucket=${frontend_bucket}" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=${distribution_id}" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Build frontend
+        working-directory: web-app
+        env:
+          VITE_API_BASE: ${{ steps.outputs.outputs.api_url }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Sync frontend to S3
+        run: aws s3 sync web-app/dist "s3://${{ steps.outputs.outputs.frontend_bucket }}" --delete
+
+      - name: Invalidate CloudFront cache
+        run: aws cloudfront create-invalidation --distribution-id "${{ steps.outputs.outputs.distribution_id }}" --paths "/*"
+
+      - name: Summary
+        run: |
+          echo "### Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: ${{ steps.outputs.outputs.api_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App: ${{ steps.outputs.outputs.frontend_url }}" >> "$GITHUB_STEP_SUMMARY"
