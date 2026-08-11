@@ -85,7 +85,6 @@ Resources:
     Properties:
       CodeUri: ../
       Handler: lambdas/worker_handler.handler
-      ReservedConcurrentExecutions: 5 # deliberately >1: proves concurrent claim-safety in prod
       Policies:
         - !Ref BedrockInvokePolicy
       Events:

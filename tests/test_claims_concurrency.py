@@ -1,9 +1,10 @@
 """Integration test for the core concurrency-safety guarantee.
 
 Requires a live CockroachDB connection (DATABASE_URL) with db/schema.sql
-applied. Does NOT require AWS/Bedrock credentials: claim_next_pending never
-calls Bedrock, only process_claim does, so this test exercises the exact
-guarantee claims_engine.py is built around without needing any AWS setup.
+applied, AND AWS/Bedrock credentials: submit_claim embeds each claim's
+description via store_embedding on the way in, so even though
+claim_next_pending itself never touches Bedrock, seeding the claims this
+test races over does.
 
 Run: DATABASE_URL=... pytest tests/test_claims_concurrency.py
 """
@@ -15,14 +16,29 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import boto3
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL"),
-    reason="requires a live CockroachDB connection (DATABASE_URL)",
-)
+
+def _has_aws_credentials() -> bool:
+    try:
+        return boto3.Session().get_credentials() is not None
+    except Exception:  # noqa: BLE001 - any resolution failure means "not available"
+        return False
+
+
+pytestmark = [
+    pytest.mark.skipif(
+        not os.environ.get("DATABASE_URL"),
+        reason="requires a live CockroachDB connection (DATABASE_URL)",
+    ),
+    pytest.mark.skipif(
+        not _has_aws_credentials(),
+        reason="requires AWS/Bedrock credentials (submit_claim embeds via Bedrock)",
+    ),
+]
 
 
 @pytest.fixture

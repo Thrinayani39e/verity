@@ -1,8 +1,25 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# CockroachDB Cloud Serverless certs are signed by a public CA (Let's Encrypt),
+# but sslmode=verify-full defaults to looking for a root cert at
+# ~/.postgresql/root.crt - a path that only exists on machines where someone
+# manually placed it, not on CI runners or inside the Lambda deployment
+# package. Bundling the CA cert in the repo and resolving its path relative to
+# this file (not the process's CWD) makes verify-full work identically in
+# local dev, CI, and Lambda, all of which have `db/` as a sibling of `src/`.
+_CA_CERT_PATH = (Path(__file__).resolve().parent.parent.parent / "db" / "certs" / "isrg-root-x1.pem").as_posix()
+
+
+def _with_root_cert(url: str) -> str:
+    if not url or "sslrootcert=" in url:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}sslrootcert={_CA_CERT_PATH}"
 
 
 def _require(name: str) -> str:
@@ -17,7 +34,7 @@ class Settings:
 
     # CockroachDB Cloud connection string, e.g.
     # postgresql://user:pass@host:26257/verity?sslmode=verify-full
-    database_url: str = os.environ.get("DATABASE_URL", "")
+    database_url: str = _with_root_cert(os.environ.get("DATABASE_URL", ""))
 
     aws_region: str = os.environ.get("AWS_REGION", "us-east-1")
 
