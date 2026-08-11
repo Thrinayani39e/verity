@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from verity.audit import check_no_double_claims  # noqa: E402
-from verity.claims_engine import claim_next_pending, submit_claim  # noqa: E402
-from verity.db import run_in_transaction  # noqa: E402
+from verity.audit import check_no_double_claims
+from verity.claims_engine import claim_next_pending, submit_claim
+from verity.db import run_in_transaction
 
 
 def _create_worker_agents(org_id: str, agent_ids: list[str]) -> None:

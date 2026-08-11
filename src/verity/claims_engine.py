@@ -11,7 +11,7 @@ from any locking we implement ourselves.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 import psycopg
 
@@ -48,7 +48,11 @@ def _lookup_policy(cur: psycopg.Cursor, policy_number: str) -> dict | None:
     if row is None:
         return None
     policy = dict(zip(_POLICY_COLUMNS, row))
-    today = date.today()
+    # Explicit UTC rather than date.today()'s local-system timezone: Lambda
+    # always runs in UTC, and policy effective/expiration dates should be
+    # compared against an unambiguous "today", not whatever timezone the
+    # host happens to be in.
+    today = datetime.now(tz=timezone.utc).date()
     policy["is_active"] = (
         policy["status"] == "active" and policy["effective_date"] <= today <= policy["expiration_date"]
     )
