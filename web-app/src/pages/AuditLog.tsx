@@ -20,7 +20,7 @@ export function AuditLog() {
     <div className="animate-fade-up">
       <h1 className="mb-2 text-2xl font-semibold tracking-tight text-[var(--color-ink)]">Audit log</h1>
       <p className="mb-5 text-[13.5px] text-[rgb(20_23_26_/_0.55)]">
-        Every lifecycle event, in order, across every claim — the compliance record.
+        Every lifecycle event, in order, across every claim: the compliance record.
       </p>
       <div className="mb-4 flex items-center gap-2.5">
         <select

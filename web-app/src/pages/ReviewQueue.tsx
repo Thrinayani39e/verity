@@ -72,7 +72,7 @@ export function ReviewQueue() {
       <h1 className="mb-2 text-2xl font-semibold tracking-tight text-[var(--color-ink)]">Review queue</h1>
       <p className="mb-6 text-[13.5px] leading-relaxed text-[rgb(20_23_26_/_0.55)]">
         {claims.length} case{claims.length === 1 ? "" : "s"} the model won't decide alone. Read the
-        rationale, then make the call — nothing pays out without a signature here.
+        rationale, then make the call. Nothing pays out without a signature here.
       </p>
 
       {claims.length === 0 && (

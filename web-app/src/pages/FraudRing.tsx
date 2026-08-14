@@ -150,9 +150,9 @@ export function FraudRingPage() {
     <div className="animate-fade-up max-w-[1080px]">
       <h1 className="mb-2 text-2xl font-semibold tracking-tight text-[var(--color-ink)]">Fraud rings</h1>
       <p className="mb-6 max-w-[640px] text-[13.5px] leading-relaxed text-[rgb(20_23_26_/_0.55)]">
-        Every claim below looks unremarkable on its own — different claimants, different dates, nothing a
-        single-claim review would flag. This finds claims connected by a shared bank account or address —
-        directly, or transitively through another claim that bridges the two — a pattern that only exists
+        Every claim below looks unremarkable on its own: different claimants, different dates, nothing a
+        single-claim review would flag. This finds claims connected by a shared bank account or address,
+        directly, or transitively through another claim that bridges the two, a pattern that only exists
         across claims and that no single-claim review, human or agent, can see.
       </p>
 

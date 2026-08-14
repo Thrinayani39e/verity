@@ -38,7 +38,7 @@ export function Dashboard() {
   const decided = (byStatus.get("approved")?.count ?? 0) + (byStatus.get("denied")?.count ?? 0);
   const approvalRate = decided
     ? `${Math.round(((byStatus.get("approved")?.count ?? 0) / decided) * 100)}%`
-    : "—";
+    : "-";
   const totalClaims = summary?.by_status.reduce((sum, s) => sum + s.count, 0) ?? claims.length;
   const totalPaid = fmtMoney(summary?.payouts.total_amount_cents ?? 0);
   const needsReview = byStatus.get("flagged")?.count ?? 0;
@@ -55,7 +55,7 @@ export function Dashboard() {
           Every claim decided with evidence, and a human always has the final say.
         </h1>
         <p className="mt-2.5 text-[14.5px] leading-relaxed text-[rgb(20_23_26_/_0.6)]">
-          Verity's agents gather policy context, weigh precedent, and decide in minutes — flagging
+          Verity's agents gather policy context, weigh precedent, and decide in minutes, flagging
           anything uncertain for an adjuster before a dollar moves.
         </p>
       </div>
