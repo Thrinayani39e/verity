@@ -23,16 +23,16 @@ export interface DemoScene {
 
 export const HOST_INTRO: DemoScene = {
   time: "0:00",
-  durationSeconds: 8,
+  durationSeconds: 12,
   title: "Introduction",
   action: "Face camera or voiceover only, before switching to the browser.",
   script:
-    "Hi, I'm Thrinayani. This is Verity, and here's what I built for the CockroachDB and AWS hackathon.",
+    "Hello, I'm Thrinayani, and this is what I built for the CockroachDB and AWS hackathon. My project is called Verity, and it's basically an agent that never forgets.",
 };
 
 export const SCENES: DemoScene[] = [
   {
-    time: "0:08",
+    time: "0:12",
     durationSeconds: 12,
     title: "Cold open: the problem",
     action:
@@ -41,7 +41,7 @@ export const SCENES: DemoScene[] = [
       "When you file a claim, someone has to remember your policy, your history, and every similar case the company's seen, then decide fairly and fast. That's hard for a person. It's harder for an AI that forgets the moment the conversation ends.",
   },
   {
-    time: "0:20",
+    time: "0:24",
     durationSeconds: 17,
     title: "What Verity actually is",
     action:
@@ -50,7 +50,7 @@ export const SCENES: DemoScene[] = [
       "Verity is an agent that reviews claims automatically. It reads the policy, checks history, and decides to approve, deny, or flag a claim for a person. Its memory lives in CockroachDB, not a chat log, built to prove months later exactly what it knew.",
   },
   {
-    time: "0:37",
+    time: "0:41",
     durationSeconds: 10,
     title: "Why this needs to be real, not a mockup",
     action: "Click the Flagged filter pill. The queue narrows to a couple of rows.",
@@ -58,7 +58,7 @@ export const SCENES: DemoScene[] = [
       "This is a real, live deployment on AWS. Real claims, decided by an agent talking to a live CockroachDB cluster. Insurance is regulated: you need to prove a decision, not claim one.",
   },
   {
-    time: "0:47",
+    time: "0:51",
     durationSeconds: 26,
     title: "A claim thinks out loud",
     action:
@@ -67,7 +67,7 @@ export const SCENES: DemoScene[] = [
       "Watch Rosalind Achebe's claim. Before deciding anything, the agent looks up her policy, history, and similar cases, and saves that to the database first, before asking the model. It flagged her: the policy belongs to someone else, and she filed two other claims in the same window. A judgment call for a person.",
   },
   {
-    time: "1:13",
+    time: "1:17",
     durationSeconds: 12,
     title: "Pattern recognition, at database scale",
     action:
@@ -76,7 +76,7 @@ export const SCENES: DemoScene[] = [
       "An adjuster's edge is pattern recognition. Verity does the same with CockroachDB's vector search: every claim becomes a fingerprint, findable in different words. Watch it find the match.",
   },
   {
-    time: "1:25",
+    time: "1:29",
     durationSeconds: 27,
     title: "A pattern no single claim reveals",
     action:
@@ -85,7 +85,7 @@ export const SCENES: DemoScene[] = [
       "Here's a pattern no single claim can reveal. Three claims, three different names, look unremarkable filed one at a time. But two of them pay into the same bank account, and one of those people shares an address with a third. CockroachDB traces that chain across every claim ever filed and surfaces the whole ring, not just the obvious pair.",
   },
   {
-    time: "1:52",
+    time: "1:56",
     durationSeconds: 28,
     title: "Proving what it knew, after the fact",
     action:
@@ -94,7 +94,7 @@ export const SCENES: DemoScene[] = [
       "Here's the part no other database does for free. A senior adjuster reviewed that flag and approved it. Ask what the system knew at that exact moment, before the human stepped in. Most systems can't answer honestly, because the data has changed. Watch: CockroachDB shows the database exactly as it looked then, next to now. Flagged then. Approved now.",
   },
   {
-    time: "2:20",
+    time: "2:24",
     durationSeconds: 22,
     title: "One more guarantee, proven not claimed",
     action:
@@ -103,7 +103,7 @@ export const SCENES: DemoScene[] = [
       "One more guarantee, proven, not claimed. I spun up a multi-region CockroachDB cluster, loaded a few rows, then killed every node in one whole region, live. Watch: the data in that region is still readable, and a brand new write to it still commits. A surviving replica just takes over. Zero data lost.",
   },
   {
-    time: "2:42",
+    time: "2:46",
     durationSeconds: 9,
     title: "Close: why AWS, why CockroachDB",
     action: "Cut back to the Overview dashboard for a clean closing frame.",
