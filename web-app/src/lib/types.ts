@@ -134,10 +134,16 @@ export interface FraudRingClaim {
   created_at: string;
 }
 
+export interface FraudRingEdge {
+  from: string;
+  to: string;
+  kind: "bank_account_last4" | "claimant_address";
+  value: string;
+}
+
 export interface FraudRing {
-  shared_attribute_kind: "bank_account" | "address";
-  shared_attribute_value: string;
   claims: FraudRingClaim[];
+  edges: FraudRingEdge[];
   total_amount_cents: number;
 }
 
