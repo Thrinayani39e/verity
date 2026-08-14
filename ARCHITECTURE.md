@@ -83,9 +83,11 @@ flowchart TB
 - **S3** — durable store for raw claim attachments; the ingestion Lambda
   parses and embeds them into the same memory store the claims agent reads
   from.
-- **Fraud ring detection** (`src/verity/fraud_ring.py`) — a relational
-  `GROUP BY ... HAVING count(*) > 1` over the same store, clustering claims
-  that share a bank account or address across different claimant names. See
+- **Fraud ring detection** (`src/verity/fraud_ring.py`) — connected
+  components (Union-Find) over shared-attribute edges in the same store, so
+  claims bridged together transitively (A-B share a bank account, B-C share
+  an address) merge into one ring, not just direct single-attribute
+  clusters. See
   [Fraud Ring Buster](#fraud-ring-buster-memory-across-claims-not-within-one)
   below for why this is a distinct kind of memory from everything above it.
 
@@ -118,33 +120,39 @@ question: what's true *across* claims that no single claim reveals.
 
 Three claims filed under three different names, weeks apart, each for an
 unremarkable amount, are individually invisible to any per-claim review -
-automated or human. What connects them (the same bank account routing to
-all three, or the same claimant address) only exists in the relationship
-between rows, which requires a query that spans the whole table:
-
-```sql
-SELECT bank_account_last4, array_agg(id), array_agg(claimant_name), ...
-FROM claims
-WHERE bank_account_last4 IS NOT NULL
-GROUP BY bank_account_last4
-HAVING count(*) > 1
-```
+automated or human. A single `GROUP BY` on one shared attribute finds the
+easy case, but real rings are rarely that clean: claim A and B might share a
+bank account while B and C share nothing but an address. A and C are still
+part of one ring - connected through B - but no single-attribute query finds
+that. `fraud_ring.py` treats claims as a graph instead: every shared
+attribute is an edge, and Union-Find (`_UnionFind`, path-compressed
+disjoint-set) computes the actual connected components, so a claim bridged
+in through a second attribute correctly merges into the same ring as claims
+it shares nothing directly with. `tests/test_fraud_ring.py` covers this
+transitive case explicitly, along with the simpler cases and the
+"unrelated claims must stay unrelated" property that matters just as much -
+a ring-finder that over-merges is as useless as one that misses rings.
 
 This is the same argument the concurrency and replay features make, applied
 to a different axis: a stateless agent evaluating claims one at a time,
 however good its reasoning, cannot see this pattern by construction - there
-is no "this claim" whose context includes it. Only a persistent store that
-can be queried across every claim ever filed can. The frontend renders each
-detected ring as a force-directed graph (`d3-force`, plain SVG) so a
-reviewer can see the cluster form and click straight into any claim in it,
-rather than reading a flat list of IDs.
+is no "this claim" whose context includes it, and no single claim's context
+includes a claim two hops away in the graph either. Only a persistent store
+that can be queried across every claim ever filed, and reasoned about as a
+graph, can. The frontend renders each detected ring as a force-directed
+graph (`d3-force`, plain SVG) with edges styled by the attribute that formed
+them (solid for a shared bank account, dashed for a shared address), so a
+reviewer can see not just that a ring exists but exactly how each claim was
+pulled into it.
 
-The relational clustering here is deliberately simple (exact-match
-`GROUP BY`, no fuzzy matching) and is a second, independent signal alongside
-the semantic similarity `vector_memory.find_similar_claims` already
-provides - the two aren't merged into one combined query, since exact
+The relational clustering here is deliberately exact-match (no fuzzy
+matching, no model call) - which is what makes it fast, deterministic, and
+unit-testable without a live database - and is a second, independent signal
+alongside the semantic similarity `vector_memory.find_similar_claims`
+already provides. The two aren't merged into one combined query: exact
 identity matches and semantic description similarity are different claims
-about the data and conflating them would make either one harder to trust.
+about the data, and conflating them into one score would make both harder
+to trust and calibrate correctly.
 
 ## Multi-region design (documented, not deployed)
 
