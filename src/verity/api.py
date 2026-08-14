@@ -13,7 +13,14 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from verity import audit, claims_engine, cluster_ops, ingestion, vector_memory
+from verity import (
+    audit,
+    claims_engine,
+    cluster_ops,
+    fraud_ring,
+    ingestion,
+    vector_memory,
+)
 from verity.config import settings
 from verity.db import read_only_connection, run_in_transaction
 
@@ -33,6 +40,8 @@ class ClaimIn(BaseModel):
     policy_number: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=5000)
     amount_cents: int = Field(gt=0)
+    bank_account_last4: str | None = Field(default=None, max_length=4)
+    claimant_address: str | None = Field(default=None, max_length=300)
 
 
 class ProcessIn(BaseModel):
@@ -157,6 +166,8 @@ def create_claim(body: ClaimIn) -> dict:
         policy_number=body.policy_number,
         description=body.description,
         amount_cents=body.amount_cents,
+        bank_account_last4=body.bank_account_last4,
+        claimant_address=body.claimant_address,
     )
     return {"claim_id": claim_id}
 
@@ -234,6 +245,16 @@ def replay(decision_id: UUID) -> dict:
 def double_claims_check() -> dict:
     """Concurrency-safety proof endpoint: `violations` should always be empty."""
     return {"violations": audit.check_no_double_claims()}
+
+
+@app.get("/fraud-rings")
+def fraud_rings() -> list[dict]:
+    """Clusters of claims that look independent one at a time but share a
+    bank account or address across different claimant names - the pattern a
+    stateless, one-claim-at-a-time agent structurally cannot see, and only a
+    persistent, queryable memory can surface across every claim ever filed.
+    """
+    return fraud_ring.find_fraud_rings()
 
 
 @app.get("/search")

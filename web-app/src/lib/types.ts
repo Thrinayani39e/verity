@@ -126,6 +126,21 @@ export interface AnalyticsSummary {
   human_reviews: number;
 }
 
+export interface FraudRingClaim {
+  id: string;
+  claimant_name: string;
+  amount_cents: number;
+  status: ClaimStatus;
+  created_at: string;
+}
+
+export interface FraudRing {
+  shared_attribute_kind: "bank_account" | "address";
+  shared_attribute_value: string;
+  claims: FraudRingClaim[];
+  total_amount_cents: number;
+}
+
 export interface HealthCheckResult {
   healthy: boolean;
   status: string;

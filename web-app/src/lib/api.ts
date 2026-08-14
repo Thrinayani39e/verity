@@ -3,6 +3,7 @@ import type {
   Claim,
   ClaimDetail,
   DoubleClaimViolation,
+  FraudRing,
   HealthCheckResult,
   Organization,
   Policy,
@@ -118,6 +119,8 @@ export const api = {
   analyticsSummary: () => request<AnalyticsSummary>("/analytics/summary"),
 
   opsHealthCheck: () => request<HealthCheckResult>("/ops/health-check", { method: "POST" }),
+
+  fraudRings: () => request<FraudRing[]>("/fraud-rings"),
 };
 
 export { ApiError };

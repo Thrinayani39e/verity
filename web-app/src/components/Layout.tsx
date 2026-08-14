@@ -7,6 +7,7 @@ import { SubmitClaimModal } from "./SubmitClaimModal";
 const NAV_ITEMS = [
   { to: "/", label: "Overview", end: true },
   { to: "/search", label: "Precedent Search" },
+  { to: "/fraud-rings", label: "Fraud Rings" },
   { to: "/policies", label: "Policies" },
   { to: "/reviews", label: "Review Queue" },
   { to: "/audit", label: "Audit Log" },

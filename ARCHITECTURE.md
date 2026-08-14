@@ -23,6 +23,7 @@ flowchart TB
         VEC[Distributed vector index<br/>claim_embeddings]
         AUDIT[Append-only claim_events<br/>+ AS OF SYSTEM TIME replay]
         MCP_SERVER[Managed MCP Server<br/>read-only]
+        FRAUD[Fraud ring detection<br/>relational clustering across claims]
     end
 
     WEB -->|HTTPS| APIGW --> LAMBDA_API
@@ -44,6 +45,8 @@ flowchart TB
     CRDB --- VEC
     CRDB --- AUDIT
     CRDB --- MCP_SERVER
+    CRDB --- FRAUD
+    LAMBDA_API -->|GET /fraud-rings| FRAUD
     MCP_CLIENT -->|read-only query| MCP_SERVER
 ```
 
@@ -80,6 +83,11 @@ flowchart TB
 - **S3** — durable store for raw claim attachments; the ingestion Lambda
   parses and embeds them into the same memory store the claims agent reads
   from.
+- **Fraud ring detection** (`src/verity/fraud_ring.py`) — a relational
+  `GROUP BY ... HAVING count(*) > 1` over the same store, clustering claims
+  that share a bank account or address across different claimant names. See
+  [Fraud Ring Buster](#fraud-ring-buster-memory-across-claims-not-within-one)
+  below for why this is a distinct kind of memory from everything above it.
 
 ## Data model
 
@@ -93,6 +101,50 @@ memory:
 | `claim_embeddings` | distributed vector index; semantic memory |
 | `decisions` | every agent decision + the exact context/timestamp it used |
 | `documents` | S3 pointers + extracted text for ingested attachments |
+
+`claims.bank_account_last4` and `claims.claimant_address` are the two
+optional columns `fraud_ring.py` clusters on (see below). Neither is ever
+read by the agent's own decision logic (`claims_engine.py::_gather_context`)
+- feeding identity attributes into the model's reasoning would be a real
+bias risk. They exist solely as a second, independent memory surface a
+human reviewer can query across every claim on file.
+
+## Fraud Ring Buster: memory across claims, not within one
+
+Every other feature in this system answers "what did the agent know about
+*this* claim." Fraud Ring Buster (`src/verity/fraud_ring.py`, `GET
+/fraud-rings`, `web-app/src/pages/FraudRing.tsx`) answers a different
+question: what's true *across* claims that no single claim reveals.
+
+Three claims filed under three different names, weeks apart, each for an
+unremarkable amount, are individually invisible to any per-claim review -
+automated or human. What connects them (the same bank account routing to
+all three, or the same claimant address) only exists in the relationship
+between rows, which requires a query that spans the whole table:
+
+```sql
+SELECT bank_account_last4, array_agg(id), array_agg(claimant_name), ...
+FROM claims
+WHERE bank_account_last4 IS NOT NULL
+GROUP BY bank_account_last4
+HAVING count(*) > 1
+```
+
+This is the same argument the concurrency and replay features make, applied
+to a different axis: a stateless agent evaluating claims one at a time,
+however good its reasoning, cannot see this pattern by construction - there
+is no "this claim" whose context includes it. Only a persistent store that
+can be queried across every claim ever filed can. The frontend renders each
+detected ring as a force-directed graph (`d3-force`, plain SVG) so a
+reviewer can see the cluster form and click straight into any claim in it,
+rather than reading a flat list of IDs.
+
+The relational clustering here is deliberately simple (exact-match
+`GROUP BY`, no fuzzy matching) and is a second, independent signal alongside
+the semantic similarity `vector_memory.find_similar_claims` already
+provides - the two aren't merged into one combined query, since exact
+identity matches and semantic description similarity are different claims
+about the data and conflating them would make either one harder to trust.
 
 ## Multi-region design (documented, not deployed)
 
