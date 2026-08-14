@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS claims (
     policy_number STRING NOT NULL,
     description   STRING NOT NULL,
     amount_cents  INT8 NOT NULL,
+    -- Optional identifying attributes. Never used by the agent's own decision
+    -- (that would be a real bias risk) - they exist solely so fraud_ring.py
+    -- can find claims that share one across otherwise-unrelated claimants,
+    -- the pattern a single-claim-at-a-time view structurally cannot see.
+    bank_account_last4 STRING,
+    claimant_address    STRING,
     status        STRING NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending','claimed','approved','denied','flagged')),
     claimed_by    UUID REFERENCES agents(id),
@@ -48,6 +54,11 @@ CREATE TABLE IF NOT EXISTS claims (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     INDEX idx_claims_status_created (status, created_at)
 );
+
+-- Idempotent against an already-existing cluster (CREATE TABLE IF NOT EXISTS
+-- above is a no-op there, so these ADD COLUMNs are what actually apply):
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS bank_account_last4 STRING;
+ALTER TABLE claims ADD COLUMN IF NOT EXISTS claimant_address STRING;
 
 -- Append-only audit log. Source of truth for time-travel reconstruction.
 CREATE TABLE IF NOT EXISTS claim_events (

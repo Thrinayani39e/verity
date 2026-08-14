@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { ClaimDetail } from "./pages/ClaimDetail";
 import { PrecedentSearch } from "./pages/PrecedentSearch";
+import { FraudRingPage } from "./pages/FraudRing";
 import { Policies } from "./pages/Policies";
 import { ReviewQueue } from "./pages/ReviewQueue";
 import { AuditLog } from "./pages/AuditLog";
@@ -21,6 +22,7 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="claims/:claimId" element={<ClaimDetail />} />
               <Route path="search" element={<PrecedentSearch />} />
+              <Route path="fraud-rings" element={<FraudRingPage />} />
               <Route path="policies" element={<Policies />} />
               <Route path="reviews" element={<ReviewQueue />} />
               <Route path="audit" element={<AuditLog />} />

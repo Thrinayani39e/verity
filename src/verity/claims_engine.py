@@ -82,18 +82,36 @@ def submit_claim(
     policy_number: str,
     description: str,
     amount_cents: int,
+    bank_account_last4: str | None = None,
+    claimant_address: str | None = None,
 ) -> str:
-    """Insert a new claim, log the submission event, and embed its description into memory."""
+    """Insert a new claim, log the submission event, and embed its description into memory.
+
+    `bank_account_last4`/`claimant_address` are optional and never read by
+    the agent's own decision (see process_claim/_gather_context) - they exist
+    solely so fraud_ring.py can cluster claims that share one across
+    otherwise-unrelated claimants.
+    """
 
     def _run(conn: psycopg.Connection) -> str:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO claims (org_id, claimant_name, policy_number, description, amount_cents)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO claims
+                    (org_id, claimant_name, policy_number, description, amount_cents,
+                     bank_account_last4, claimant_address)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (org_id, claimant_name, policy_number, description, amount_cents),
+                (
+                    org_id,
+                    claimant_name,
+                    policy_number,
+                    description,
+                    amount_cents,
+                    bank_account_last4,
+                    claimant_address,
+                ),
             )
             claim_id = str(cur.fetchone()[0])
             cur.execute(
