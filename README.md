@@ -44,6 +44,8 @@ The concurrency angle is the part most "agent with memory" projects won't build:
 
 On the operational side: least-privilege IAM (`infra/template.yaml`), an append-only audit trail, a concurrency-safety self-check endpoint (`/audit/double-claims-check`), and a preflight cluster-health gate before bulk writes. And the use case itself isn't hypothetical — AI claims automation is already live in production at scale (Lemonade, Tractable, Shift Technology), insurance fraud costs the US $308.6B/year (Coalition Against Insurance Fraud), and the NAIC Model Bulletin on AI (live in 24+ states) already requires the kind of explainability this design provides.
 
+This deployment runs on CockroachDB's free Serverless/Basic tier, which is single-region by design. [ARCHITECTURE.md](ARCHITECTURE.md#multi-region-design-documented-not-deployed) documents the real `REGIONAL BY ROW` migration path this schema is shaped for — partitioned by organization, denormalized so a claim's full decision-context stays co-located with its leaseholder, with `SURVIVE REGION FAILURE` for the actual "no data loss even if a region goes dark" guarantee — not run here because it requires upgrading off the free tier.
+
 ---
 
 ## Setup

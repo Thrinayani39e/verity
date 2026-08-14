@@ -93,3 +93,67 @@ memory:
 | `claim_embeddings` | distributed vector index; semantic memory |
 | `decisions` | every agent decision + the exact context/timestamp it used |
 | `documents` | S3 pointers + extracted text for ingested attachments |
+
+## Multi-region design (documented, not deployed)
+
+The cluster this project actually runs on is CockroachDB **Serverless/Basic**
+tier, single-region (`us-east-1`) — confirmed via `ccloud cluster info`.
+Basic tier has no node/topology control (it auto-scales within one region;
+see the `managing-cluster-capacity` skill), so `ADD REGION` and
+`SURVIVE REGION FAILURE` are unavailable without upgrading to a **Standard**
+or **Advanced** cluster, which is provisioned and billed continuously. That
+upgrade wasn't made for this hackathon build — real recurring cost and
+migration risk to a working deployment days before the deadline aren't worth
+it just to demo a settings change. The design below is the real production
+path, sized to this schema, not a generic multi-region tutorial.
+
+**Why `organizations` is the right partition key.** Every claims-related
+table (`claims`, `policies`, `documents`, `claim_embeddings`, `decisions`,
+`reviews`, `payouts`) traces back to `org_id`. Each insurance carrier using
+Verity operates out of one home region in practice — this is naturally
+tenant-partitioned data, not data that needs a single row edited
+simultaneously from two continents. That rules out `GLOBAL` tables (built for
+reference data read everywhere, not tenant-owned operational state) and makes
+manual geo-partitioning more operational overhead than the workload justifies.
+`REGIONAL BY ROW` is the fit: CockroachDB keeps each carrier's data — and its
+leaseholder — local to that carrier's region automatically.
+
+**The migration, concretely:**
+
+```sql
+ALTER DATABASE verity PRIMARY REGION 'us-east-1';
+ALTER DATABASE verity ADD REGION 'eu-west-1';
+ALTER DATABASE verity ADD REGION 'ap-southeast-1';
+ALTER DATABASE verity SURVIVE REGION FAILURE;
+
+ALTER TABLE organizations ADD COLUMN home_region crdb_internal_region
+    NOT NULL DEFAULT gateway_region()::crdb_internal_region;
+```
+
+`claims`, `policies`, `documents`, `claim_embeddings`, `decisions`, and
+`reviews` each get a `region` column stamped from their owning org's
+`home_region` at insert time (application-level, in `claims_engine.py`) and
+become `LOCALITY REGIONAL BY ROW AS region`. Denormalizing the region onto
+every table in a claim's chain — not just `claims` itself — matters here
+specifically because `_gather_context()` (`claims_engine.py`) reads across
+`claims`, `policies`, `claim_events`, and `claim_embeddings` in one pass
+before the model call; if those leaseholders weren't co-located, the read
+that grounds every decision would pay cross-region latency (50-150ms+ per
+the `designing-multi-region-applications` skill) on the one path where speed
+matters most.
+
+**What this actually buys, honestly.** `REGIONAL BY ROW` does not make every
+write fast from every region — a US carrier's claims are still homed in
+`us-east-1`. What it buys is two things: each carrier gets local latency in
+its own region (a EU carrier's claims would be just as fast in `eu-west-1`
+as this demo is in `us-east-1` today), and `SURVIVE REGION FAILURE` means an
+entire AWS region going dark loses zero committed claims data for anyone —
+which is the actual guarantee this hackathon's "always-on, no data loss"
+framing is about, not a marketing claim.
+
+**The AWS half of this.** The Lambda functions would deploy per-region (one
+SAM stack per region, matching the CockroachDB regions above) so each
+region's API and worker talk to their local leaseholder instead of hopping
+across the network for every query — Route 53 latency-based routing in front
+of regional API Gateway endpoints gets a request to its nearest Lambda, which
+gets a query to its nearest leaseholder, end to end.
