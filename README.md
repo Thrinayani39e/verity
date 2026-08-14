@@ -155,8 +155,10 @@ lambdas/                  Lambda entry points (api, worker, ingestion)
 infra/template.yaml       AWS SAM template
 ops/ccloud/               Cluster provisioning + health/backup scripts
 ops/mcp/                  Managed MCP Server config example
+ops/multiregion/          Local region-kill drill validating the REGIONAL BY ROW design
 web/                       Minimal dashboard (claims queue, decisions, time-travel, concurrency proof)
 scripts/                   Demo scripts: seed data, concurrency proof, time-travel demo
+docs/demo_script.ts       Source of truth for the submission demo video script
 tests/                     Unit + integration tests
 .claude/skills/            CockroachDB Agent Skills Repo, installed via npx skills add (see skills-lock.json)
 ```
