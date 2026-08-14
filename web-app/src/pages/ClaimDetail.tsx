@@ -159,7 +159,7 @@ export function ClaimDetail() {
           <div className="rounded-[10px] border border-[var(--color-line)] bg-white p-4">
             {pending && (
               <p className="text-xs leading-relaxed text-[rgb(20_23_26_/_0.4)]">
-                Coverage check not yet performed — an agent hasn't gathered context on this case.
+                Coverage check not yet performed. An agent hasn't gathered context on this case.
               </p>
             )}
             {!pending && !policyFromContext && (
@@ -198,10 +198,10 @@ function PolicySummary({ policy }: { policy: Record<string, unknown> }) {
   const isActive = policy.is_active === true;
   return (
     <div>
-      <Row label="Coverage type" value={String(policy.coverage_type ?? "—")} capitalize />
+      <Row label="Coverage type" value={String(policy.coverage_type ?? "-")} capitalize />
       <Row
         label="Policy status"
-        value={String(policy.status ?? "—")}
+        value={String(policy.status ?? "-")}
         color={isActive ? "var(--color-accent)" : "var(--color-status-denied)"}
         capitalize
       />
@@ -249,7 +249,7 @@ function describeEvent(
     case "context_gathered": {
       const policy = (ev.payload as { policy?: Record<string, unknown> }).policy;
       if (!policy) return "No matching policy record found. Coverage could not be verified.";
-      return `Located policy ${policy.policy_number} — ${policy.coverage_type} coverage, ${policy.status}, limit ${fmtMoney(Number(policy.coverage_limit_cents))}, deductible ${fmtMoney(Number(policy.deductible_cents))}.`;
+      return `Located policy ${policy.policy_number}: ${policy.coverage_type} coverage, ${policy.status}, limit ${fmtMoney(Number(policy.coverage_limit_cents))}, deductible ${fmtMoney(Number(policy.deductible_cents))}.`;
     }
     case "decided":
       return String((ev.payload as { rationale?: string }).rationale ?? "");

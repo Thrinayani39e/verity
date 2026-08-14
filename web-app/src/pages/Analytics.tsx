@@ -77,7 +77,7 @@ export function Analytics() {
       <div className="rounded-[10px] border border-[var(--color-line)] bg-white px-5.5 py-5">
         <div className="mb-1 text-[13.5px] font-semibold text-[var(--color-ink)]">Agent leaderboard</div>
         <div className="mb-4 text-xs text-[rgb(20_23_26_/_0.45)]">
-          Claims processed per agent — proof work was distributed with no overlap.
+          Claims processed per agent: proof work was distributed with no overlap.
         </div>
         {summary.by_agent.map((a) => (
           <div key={a.agent_id} className="mb-2.5 flex items-center gap-3.5">

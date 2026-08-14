@@ -71,7 +71,7 @@ export function ReplayModal({ decisionId, onClose }: { decisionId: string; onClo
 
             {replay.state_has_changed_since_decision ? (
               <div className="mt-5 rounded-[9px] border border-[rgb(61_122_94_/_0.3)] bg-[rgb(61_122_94_/_0.14)] px-4 py-3.5 text-[12.5px] text-[#C9E9D6]">
-                State has changed since this decision was made — the record above shows exactly what
+                State has changed since this decision was made. The record above shows exactly what
                 changed.
               </div>
             ) : (
@@ -106,7 +106,7 @@ function ReplayField({
         className={`text-[15px] font-semibold capitalize ${changed ? "rounded bg-[rgb(150_115_31_/_0.2)] px-1.5 py-0.5" : ""}`}
         style={{ color: changed ? "#E8C978" : accent ? "var(--color-modal-accent)" : "rgba(255,255,255,0.85)" }}
       >
-        {value ?? "—"}
+        {value ?? "-"}
       </div>
     </div>
   );

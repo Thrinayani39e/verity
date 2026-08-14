@@ -35,7 +35,7 @@ export function SubmitClaimModal({
         description,
         amount_cents: Math.round(parseFloat(amount) * 100),
       });
-      showToast("Claim submitted — an agent will pick it up shortly.");
+      showToast("Claim submitted. An agent will pick it up shortly.");
       onSubmitted();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to submit claim");
