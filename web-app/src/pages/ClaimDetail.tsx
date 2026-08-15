@@ -1,23 +1,42 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { ClaimDetail as ClaimDetailType } from "../lib/types";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { STATUS_META, EVENT_META } from "../lib/statusMeta";
 import { ReplayModal } from "../components/ReplayModal";
 import { useOrg } from "../lib/OrgContext";
+import { useToast } from "../lib/toast";
 
 export function ClaimDetail() {
   const { claimId } = useParams<{ claimId: string }>();
   const navigate = useNavigate();
   const { orgs } = useOrg();
+  const showToast = useToast();
   const [detail, setDetail] = useState<ClaimDetailType | null>(null);
   const [replayOpen, setReplayOpen] = useState(false);
+  const [running, setRunning] = useState(false);
 
-  useEffect(() => {
+  const refresh = () => {
     if (!claimId) return;
     api.claimDetail(claimId).then(setDetail).catch(() => setDetail(null));
-  }, [claimId]);
+  };
+
+  useEffect(refresh, [claimId]);
+
+  const runAgentNow = async () => {
+    if (!claimId || !detail) return;
+    setRunning(true);
+    try {
+      const { agent_id } = await api.ensureDefaultAgent(detail.claim.org_id);
+      await api.claimAndProcess(claimId, agent_id);
+      refresh();
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Agent run failed");
+    } finally {
+      setRunning(false);
+    }
+  };
 
   if (!detail) return <p className="text-sm text-[rgb(20_23_26_/_0.4)]">Loading…</p>;
 
@@ -161,6 +180,15 @@ export function ClaimDetail() {
               <p className="text-xs leading-relaxed text-[rgb(20_23_26_/_0.4)]">
                 Coverage check not yet performed. An agent hasn't gathered context on this case.
               </p>
+            )}
+            {claim.status === "pending" && (
+              <button
+                onClick={runAgentNow}
+                disabled={running}
+                className="mt-3 w-full rounded-lg bg-[var(--color-ink)] px-4 py-2.5 text-[12.5px] font-semibold text-white disabled:opacity-50"
+              >
+                {running ? "Agent is deciding..." : "▶ Run agent now"}
+              </button>
             )}
             {!pending && !policyFromContext && (
               <p className="text-xs leading-relaxed text-[var(--color-status-denied)]">

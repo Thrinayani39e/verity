@@ -52,6 +52,10 @@ class OrganizationIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class EnsureAgentIn(BaseModel):
+    org_id: UUID
+
+
 class PolicyIn(BaseModel):
     org_id: UUID
     policy_number: str = Field(min_length=1, max_length=100)
@@ -102,6 +106,33 @@ def create_organization(body: OrganizationIn) -> dict:
             )
             agent_id = str(cur.fetchone()[0])
         return {"org_id": org_id, "agent_id": agent_id}
+
+    return run_in_transaction(_run)
+
+
+@app.post("/agents/ensure-default")
+def ensure_default_agent(body: EnsureAgentIn) -> dict:
+    """Find-or-create a stable agent for this org, for the dashboard's on-demand
+    "run agent now" action. The concurrency-proof scripts create and pass
+    their own agent ids directly; this just gives the UI a valid one to act
+    as, idempotently, so clicking the button twice doesn't spawn duplicate
+    agent rows."""
+    org_id = str(body.org_id)
+
+    def _run(conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM agents WHERE org_id = %s AND name = 'dashboard-agent'",
+                (org_id,),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                return {"agent_id": str(row[0])}
+            cur.execute(
+                "INSERT INTO agents (org_id, name, kind) VALUES (%s, 'dashboard-agent', 'claims_worker') RETURNING id",
+                (org_id,),
+            )
+            return {"agent_id": str(cur.fetchone()[0])}
 
     return run_in_transaction(_run)
 
@@ -193,9 +224,9 @@ def list_claims(status: str | None = None, limit: int = 50) -> list[dict]:
 
 @app.post("/claims/{claim_id}/claim")
 def claim_claim(claim_id: UUID, body: ProcessIn) -> dict:
-    claimed_id = claims_engine.claim_next_pending(str(body.agent_id))
+    claimed_id = claims_engine.claim_specific(str(claim_id), str(body.agent_id))
     if claimed_id is None:
-        raise HTTPException(status_code=409, detail="No pending claims available")
+        raise HTTPException(status_code=409, detail="Claim is not pending (already claimed or processed)")
     return {"claimed_claim_id": claimed_id}
 
 
@@ -239,6 +270,8 @@ def replay(decision_id: UUID) -> dict:
         return audit.replay_decision(str(decision_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except audit.ReplayWindowExpired as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
 
 
 @app.get("/audit/double-claims-check")

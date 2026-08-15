@@ -179,6 +179,44 @@ def claim_next_pending(agent_id: str) -> str | None:
     return run_in_transaction(_run)
 
 
+def claim_specific(claim_id: str, agent_id: str) -> str | None:
+    """Atomically claim one exact claim for `agent_id`, or return None if it isn't pending.
+
+    Unlike claim_next_pending (used by the concurrency-proof scripts, which
+    intentionally grab whichever claim is oldest-pending across the whole
+    queue), this targets the exact claim_id given - for the dashboard's
+    on-demand "run agent now" action, where the operator is looking at one
+    specific claim and expects that claim, not an arbitrary queue slot, to
+    be the one processed.
+    """
+
+    def _run(conn: psycopg.Connection) -> str | None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE claims
+                SET status = 'claimed', claimed_by = %s, claimed_at = now(), updated_at = now()
+                WHERE id = %s AND status = 'pending'
+                RETURNING id
+                """,
+                (agent_id, claim_id),
+            )
+            updated = cur.fetchone()
+            if updated is None:
+                return None
+
+            cur.execute(
+                """
+                INSERT INTO claim_events (claim_id, agent_id, event_type, payload)
+                VALUES (%s, %s, 'claimed', '{}')
+                """,
+                (claim_id, agent_id),
+            )
+        return claim_id
+
+    return run_in_transaction(_run)
+
+
 def _gather_context(conn: psycopg.Connection, claim_id: str) -> tuple[dict, str, datetime]:
     """Read the claim, its claimant history, and similar historical claims as one snapshot.
 
