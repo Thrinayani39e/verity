@@ -79,6 +79,17 @@ Resources:
               - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${BedrockLlmModelId}"
               - !Sub "arn:aws:bedrock:us-east-2::foundation-model/${BedrockLlmModelId}"
               - !Sub "arn:aws:bedrock:us-west-2::foundation-model/${BedrockLlmModelId}"
+              # Empirically confirmed via a live AccessDeniedException: Bedrock's
+              # permission check for a cross-region inference profile evaluates
+              # against the underlying foundation model ARN with the region-
+              # routing prefix ("us.") stripped, not the profile id as
+              # configured - none of the parameterized ARNs above match that.
+              # Hardcoded rather than derived from BedrockLlmModelId because
+              # CloudFormation has no built-in way to strip a literal prefix
+              # from a parameter value; revisit if the model changes.
+              - !Sub "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-6"
+              - !Sub "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-6"
+              - !Sub "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-6"
 
   ApiFunction:
     Type: AWS::Serverless::Function
