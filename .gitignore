@@ -10,3 +10,4 @@ node_modules/
 
 # Local working scripts for recording/planning, not project source
 docs/demo_script.ts
+docs/demo_script.docx

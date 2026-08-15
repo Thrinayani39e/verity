@@ -4,6 +4,13 @@
 
 Verity is a fleet of autonomous claims-processing agents that pull work from a shared queue, decide on cases using semantic recall over historical precedent, and record every decision with enough fidelity that a compliance reviewer can later reconstruct *exactly* what the agent knew at the moment it decided — even after the underlying data has changed.
 
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/01-dashboard.png" alt="Verity overview dashboard showing claim stats and the claims queue"></td>
+<td width="50%"><img src="docs/screenshots/02-fraud-rings.png" alt="Fraud Rings graph showing a 4-claim ring linked by a shared bank account and a transitive shared-address bridge"></td>
+</tr>
+</table>
+
 It exists to demonstrate two things most "agent with memory" demos don't:
 
 1. **Agentic memory has a concurrency problem, not just a persistence problem.** Real claims platforms (e.g. Guidewire ClaimCenter, the industry-standard system) avoid this problem today by routing every claim through a centralized dispatcher — round-robin or rules-based assignment to a single human adjuster — specifically so two workers never have to race for the same case. That works when "workers" are humans: slow, limited in number, easy to serialize through one dispatcher. It stops working once "workers" are AI agents that can act in parallel, across regions, far faster than any human queue can dispatch — the centralized assignment service becomes both a bottleneck and a single point of failure. Verity removes the central dispatcher entirely: any number of agents can call `claim_next_pending()` concurrently, and CockroachDB's serializable isolation — not application-level locking — guarantees none of them ever double-claim a case. `scripts/simulate_concurrent_claims.py` proves this under load.
@@ -51,7 +58,57 @@ Those are exactly the four things this project is actually built around, and non
 | **AWS Lambda** | Three functions: the API (`lambdas/api_handler.py`, FastAPI via Mangum), the claims worker (`lambdas/worker_handler.py`, invoked on an interval with concurrency > 1 so agents genuinely race for work), and document ingestion (`lambdas/ingestion_handler.py`, triggered by S3 uploads). |
 | **Amazon S3** | Stores raw claim attachments; uploads trigger the ingestion Lambda, which chunks and embeds them into the same CockroachDB memory store. |
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full diagram and data model.
+```mermaid
+flowchart TB
+    subgraph Client
+        WEB[Web dashboard<br/>web/index.html]
+        MCP_CLIENT[Claude Code / Cursor<br/>connected via MCP]
+    end
+
+    subgraph AWS
+        APIGW[API Gateway]
+        LAMBDA_API[Lambda: api_handler<br/>FastAPI via Mangum]
+        LAMBDA_WORKER[Lambda: worker_handler<br/>claims agent worker]
+        EVENTBRIDGE[EventBridge Scheduler<br/>invokes workers on interval]
+        LAMBDA_INGEST[Lambda: ingestion_handler]
+        S3[(S3<br/>claim documents)]
+        BEDROCK_LLM[Bedrock: Claude<br/>decision reasoning]
+        BEDROCK_EMBED[Bedrock: Titan Embed v2<br/>vectorization]
+    end
+
+    subgraph CockroachDB Cloud
+        CRDB[(CockroachDB cluster)]
+        VEC[Distributed vector index<br/>claim_embeddings]
+        AUDIT[Append-only claim_events<br/>+ AS OF SYSTEM TIME replay]
+        MCP_SERVER[Managed MCP Server<br/>read-only]
+        FRAUD[Fraud ring detection<br/>relational clustering across claims]
+    end
+
+    WEB -->|HTTPS| APIGW --> LAMBDA_API
+    LAMBDA_API -->|SQL, serializable txns| CRDB
+    LAMBDA_API --> BEDROCK_EMBED
+    LAMBDA_API --> BEDROCK_LLM
+
+    EVENTBRIDGE -->|invoke, concurrency > 1| LAMBDA_WORKER
+    LAMBDA_WORKER -->|claim_next_pending<br/>serializable, retried on 40001| CRDB
+    LAMBDA_WORKER --> BEDROCK_EMBED
+    LAMBDA_WORKER --> BEDROCK_LLM
+    LAMBDA_WORKER -->|ccloud CLI preflight| CCLOUD[ccloud CLI]
+    CCLOUD -->|cluster show / backup list| CRDB
+
+    S3 -->|ObjectCreated event| LAMBDA_INGEST
+    LAMBDA_INGEST --> BEDROCK_EMBED
+    LAMBDA_INGEST -->|store chunks + embeddings| CRDB
+
+    CRDB --- VEC
+    CRDB --- AUDIT
+    CRDB --- MCP_SERVER
+    CRDB --- FRAUD
+    LAMBDA_API -->|GET /fraud-rings| FRAUD
+    MCP_CLIENT -->|read-only query| MCP_SERVER
+```
+
+Full data model and the "why each piece exists" walkthrough: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Design highlights
 
