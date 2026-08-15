@@ -18,7 +18,7 @@ flowchart TB
         BEDROCK_EMBED[Bedrock: Titan Embed v2<br/>vectorization]
     end
 
-    subgraph CockroachDB Cloud
+    subgraph CockroachDB_Cloud["CockroachDB Cloud"]
         CRDB[(CockroachDB cluster)]
         VEC[Distributed vector index<br/>claim_embeddings]
         AUDIT[Append-only claim_events<br/>+ AS OF SYSTEM TIME replay]
