@@ -62,6 +62,12 @@ export const api = {
 
   claimDetail: (claimId: string) => request<ClaimDetail>(`/claims/${claimId}/detail`),
 
+  ensureDefaultAgent: (orgId: string) =>
+    request<{ agent_id: string }>("/agents/ensure-default", {
+      method: "POST",
+      body: JSON.stringify({ org_id: orgId }),
+    }),
+
   claimAndProcess: async (claimId: string, agentId: string): Promise<ProcessResult> => {
     await request(`/claims/${claimId}/claim`, {
       method: "POST",

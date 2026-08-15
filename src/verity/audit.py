@@ -16,7 +16,20 @@ relevant tables or export decisions to a changefeed-backed archive.
 
 from __future__ import annotations
 
+import psycopg
+
 from verity.db import read_only_connection
+
+
+class ReplayWindowExpired(Exception):
+    """A decision's AS OF SYSTEM TIME read fell outside the cluster's GC window.
+
+    Not a bug - CockroachDB physically garbage-collects MVCC history older
+    than gc.ttlseconds, so a read pinned to a timestamp before that horizon
+    cannot succeed. Raised so the API layer can return a clear, expected
+    error instead of letting the raw psycopg exception surface as an
+    uncaught 500 (which strips CORS headers and looks like a CORS bug).
+    """
 
 
 def get_decision(decision_id: str) -> dict:
@@ -61,25 +74,34 @@ def replay_decision(decision_id: str) -> dict:
     #     interacts with psycopg's query protocol, even on a brand-new
     #     connection with nothing else run on it. SET TRANSACTION is also
     #     CockroachDB's own documented fix for that exact error.
-    with read_only_connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SET TRANSACTION AS OF SYSTEM TIME '{hlc_time}'")
+    try:
+        with read_only_connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SET TRANSACTION AS OF SYSTEM TIME '{hlc_time}'")
 
-        cur.execute("SELECT * FROM claims WHERE id = %s", (claim_id,))
-        historical_columns = [d.name for d in cur.description]
-        historical_row = cur.fetchone()
-        historical_claim = dict(zip(historical_columns, historical_row)) if historical_row else None
+            cur.execute("SELECT * FROM claims WHERE id = %s", (claim_id,))
+            historical_columns = [d.name for d in cur.description]
+            historical_row = cur.fetchone()
+            historical_claim = dict(zip(historical_columns, historical_row)) if historical_row else None
 
-        cur.execute(
-            """
-            SELECT event_type, payload, created_at
-            FROM claim_events
-            WHERE claim_id = %s
-            ORDER BY created_at
-            """,
-            (claim_id,),
-        )
-        event_columns = [d.name for d in cur.description]
-        historical_events = [dict(zip(event_columns, row)) for row in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT event_type, payload, created_at
+                FROM claim_events
+                WHERE claim_id = %s
+                ORDER BY created_at
+                """,
+                (claim_id,),
+            )
+            event_columns = [d.name for d in cur.description]
+            historical_events = [dict(zip(event_columns, row)) for row in cur.fetchall()]
+    except psycopg.InternalError as exc:
+        if "GC threshold" not in str(exc):
+            raise
+        raise ReplayWindowExpired(
+            f"This decision's read timestamp ({hlc_time}) is older than the cluster's "
+            "gc.ttlseconds retention window - CockroachDB has already garbage-collected "
+            "the MVCC history needed to replay it."
+        ) from exc
 
     with read_only_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT * FROM claims WHERE id = %s", (claim_id,))
