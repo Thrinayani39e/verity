@@ -63,6 +63,22 @@ Resources:
             Resource:
               - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockLlmModelId}"
               - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${BedrockEmbeddingModelId}"
+              # BedrockLlmModelId is currently a cross-region inference profile
+              # id ("us.anthropic.claude-sonnet-4-6"), a distinct, account-
+              # scoped resource type from a foundation model - the
+              # foundation-model ARN above does not cover it, which is why
+              # every InvokeModel call was failing with AccessDeniedException
+              # until this was added. Cross-region inference profiles also
+              # route to the underlying foundation model in whichever member
+              # region actually serves the request, so InvokeModel is needed
+              # on that foundation model across the profile's regions too,
+              # not just the profile ARN itself (AWS-documented behavior).
+              # Harmless to include if BedrockLlmModelId is ever a plain
+              # foundation model id instead - these ARNs simply won't match.
+              - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${BedrockLlmModelId}"
+              - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${BedrockLlmModelId}"
+              - !Sub "arn:aws:bedrock:us-east-2::foundation-model/${BedrockLlmModelId}"
+              - !Sub "arn:aws:bedrock:us-west-2::foundation-model/${BedrockLlmModelId}"
 
   ApiFunction:
     Type: AWS::Serverless::Function
